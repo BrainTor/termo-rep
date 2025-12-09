@@ -1,0 +1,1911 @@
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 1   
+
+
+C51 COMPILER V9.50a, COMPILATION OF MODULE SYS
+OBJECT MODULE PLACED IN .\obj\sys.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE sys.c LARGE OBJECTADVANCED BROWSE INCDIR(..\T5L51) DEBUG PRINT(.\Listings\s
+                    -ys.lst) TABS(2) OBJECT(.\obj\sys.obj)
+
+line level    source
+
+   1          /******************************************************************************
+   2          
+   3                            版权所有 (C), 2019, 北京迪文科技有限公司
+   4          
+   5           ******************************************************************************
+   6            文 件 名   : sys.c
+   7            版 本 号   : V2.0
+   8            作    者   : chengjing
+   9            生成日期   : 2019年4月1日
+  10            功能描述   : 温控器数据采集和逻辑控制
+  11            修改历史   :
+  12            1.日    期   : 
+  13              作    者   : 
+  14              修改内容   : 
+  15          ******************************************************************************/
+  16          
+  17          #include "sys.h"
+  18          #include "stdlib.h"
+  19          #include "string.h"
+  20          #include "config.h"
+  21          #include "control.h"
+  22          #include "TP_draw.h"
+  23          #include "timer.h"
+  24          #include "RTC.h"
+  25          #include "uart.h"
+  26          
+  27          
+  28          
+  29          const u16 code TabNTC_10k[TempSize]={
+  30            32040,30490,29022,27633,26317,25071,23889,22769,21707,20700,19788,18838,17977,17160,16383,15646,14945,142
+             -80,13647,13045,
+  31            12472,11928,11409,10916,10447,10000,9574,9168,8781,8413,8062,7727,7407,7103,6812,6534,6270,6017,5775,5545
+             -,
+  32            5324,5114,4913,4720,4536,4360,4192,4031,3877,3730,3572,3454,3324,3201,3082,2968,2859,2755,2654,2558,
+  33            2466,2378,2293,2212,2134,2059,1987,1918,1851,1788,1726,1668,1611,1557,1504,1454,1406,1359,1314,1271,
+  34            1230,1190,1151,1114,1079,1045,1011,980,949,919,891,863,837,811,786,763,740,718,696,675
+  35          };
+  36          const u16 code TabNTC2_10k[TempSize]={
+  37            32800,31141,29572,28090,26690,25366,24116,22935,21820,20767,19773,18835,17949,17113,16323,15578,14874,142
+             -08,13579,12983,
+  38            12419,11885,11378,10896,10437,10000,9513,9064,8649,8263,7904,7570,7256,6960,6682,6420,6170,5932,5707,5491
+             -,
+  39            5284,5085,4895,4712,4536,4367,4204,4047,3896,3750,3610,3475,3346,3221,3101,2987,2876,2771,2670,2573,
+  40            2480,2391,2307,2226,2148,2074,2004,1936,1871,1809,1750,1693,1586,1535,1486,1439,1393,1348,1305,1262,
+  41            1220,1178,1137,1097,1056,1023,991,960,931,903,876,850,825,801,777,755,733,713,692,673
+  42          };
+  43          
+  44          const u8 code table_week[12]={0,3,3,6,1,4,6,2,5,0,3,5}; //月修正数据表
+  45          
+  46          const u8 code time_set_init[6]={19,5,1,12,00,00};
+  47          
+  48          const u8 code mon_table[12]={31,28,31,30,31,30,31,31,30,31,30,31};
+  49          //读写Nor Flash命令
+  50          u8 code read_flash[8]={0x5A,0x00,0x00,0x00,0x25,0xE0,0x01,0x20};
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 2   
+
+  51          u8 code write_flash[8]={0xA5,0x00,0x00,0x00,0x25,0xE0,0x01,0x20};
+  52          //读写Nor Flash后查询状态
+  53          u8 read_flash_status[8]={0};
+  54          //软件版本号
+  55          u16 code Soft_Ver_Num=21;
+  56          u8  code Soft_Ver[]="V2.1";
+  57          //魔数，nor flash读取标志位
+  58          u16 Magic_Number=0;
+  59          //计算key2延时
+  60          u16 data Key_Count=0;
+  61          //息屏
+  62          u8  code led_off[4]={0x00,0x00,0x00,0x64};
+  63          //等待计时
+  64          u16 data Wait_Count=0;
+  65          //休眠标志位  0：正常，1：自动休眠,2：电源按键息屏
+  66          u16 Sleep_Flag=0;
+  67          //闹钟选择
+  68          u16 Alarm_Select=0;
+  69          //闹钟时间铃声
+  70          alarm alarm_val;
+  71          //闹钟开关
+  72          u16 Alarm_Key[2]={0};
+  73          //实时时分
+  74          u16 Real_Hour_Min=0;
+  75          //KEY按下关机标志，关继电器息屏
+  76          u8  Close_Valve_Flag=0;
+  77          //继电器配置标志
+  78          u16 Valve_Config_Flag=0;
+  79          //T1定时器计数
+  80          static u16 data SysTick_RTC=0;
+  81          //T2定时器计数
+  82          static u16 data SysTick=0;  
+  83          //串口2接收超时定时器
+  84          u16 data Uart2RxCt=0; 
+  85          //串口3接收超时定时器
+  86          u16 data Uart3RxCt=0; 
+  87          //串口4接收超时定时器
+  88          u16 data Uart4RxCt=0; 
+  89          //串口5接收超时定时器
+  90          u16 data Uart5RxCt=0; 
+  91          //休眠时间计数
+  92          u16 Sleep_Count=0;
+  93          u16 Sleep_Count_M=0;
+  94          //是否开机标志位
+  95          u8  Power_Flag=0; 
+  96          //页面切换
+  97          u8  code page_set_to_0[4]={0x5A,0x01,0x00,0x00};  
+  98          //TP status
+  99          u8  TP_Status_Old[8]={0};
+ 100          u8  TP_Status_New[8]={0};
+ 101          //背光调节数组
+ 102          u16 data led_new=0;
+ 103          u16 led_old=0;
+ 104          u16 led_icon = 0;
+ 105          u8  led_on[4]={0x64,0x00,0x00,0x64};
+ 106          //AD延时计数
+ 107          u16 AD_Count=0;
+ 108          //adc采样值
+ 109          u16 adc_value[3]={0};
+ 110          //ADC数值暂存
+ 111          u16 adc_val[8]={0};
+ 112          //电阻值
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 3   
+
+ 113          u16 R1_value=0;   //ADC7处NTC电阻
+ 114          u16 R2_value=0;   //ADC0处NTC电阻
+ 115          //温度值
+ 116          u16 R1_Temperature=0;
+ 117          u16 R2_Temperature=0;
+ 118          //温度值  由adc采用计算的处
+ 119          u16 Temperature_Real=0; 
+ 120          u16 Temperatrue_Real_Old=0;
+ 121          //屏保时间，类型
+ 122          u16 xdata sleep_time=0;
+ 123          u16 xdata Sleep_Type=1;
+ 124          u8  xdata page_set[4]={0x5A,0x01,0x00,0x3C};
+ 125          u16 screen_count=0;
+ 126          u8  xdata Screen_Flag=0;
+ 127          //闹钟定时器状态，首页右上角图标显示
+ 128          u16 Alarm_Status=0;
+ 129          u16 Timer_Status=0;
+ 130          //保存Nor Flash时间计数
+ 131          u16 Parm_Change_Count=0;
+ 132          u16 Parm_Change_Count_Val=0;
+ 133          //电源按键状态值
+ 134          u8  Sleep_Val=0;
+ 135          u8  Shut_Dwon_Flag=0;
+ 136          //风阀水阀状态
+ 137          u16 Water_Valve_Status=0;
+ 138          u16 Speed_Valve_Status=0;
+ 139          //远程更新
+ 140          u16 Remote_Update_Status=0;
+ 141          //设定温度值
+ 142          u16 Temperature_Set_Val=0;
+ 143          //温度精度标志和温度精度
+ 144          u16 Temperature_Precision=0;
+ 145          u16 Temp_Pre=0;
+ 146          //温度上下限
+ 147          u16 Temperature_Upper=0;
+ 148          u16 Temperature_Lower=0;
+ 149          //温度系数
+ 150          short Temp_Coef[3]={0};
+ 151          //时间更新
+ 152          u16 time_display[7]={0};
+ 153          //秒标志位
+ 154          u16 Second_Updata_Flag=0;
+ 155          //时间校准
+ 156          u8 time_calibra[8]={0};
+ 157          //按键状态
+ 158          u16 Key_Status=0;
+ 159          u16 Key_Value=0;
+ 160          //温控器状态
+ 161          u16 TC_Status=0;
+ 162          u16 TC_Status_Old=0;
+ 163          //切换页面
+ 164          u16 Page_Change[10]={0};
+ 165          //屏保参数
+ 166          u16 Screen_Saver_Parm[3]=0;
+ 167          //人体接近感应功能
+ 168          u16 ALS_Function=0;
+ 169          //年参数
+ 170          u16 xdata year_real=0; 
+ 171          u8  xdata yearH=0;
+ 172          u8  xdata yearL=0;
+ 173          //实时数据结构体
+ 174          rtc_time  real_time;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 4   
+
+ 175          //温度采样时间和次数
+ 176          u16 Temp_time=0;
+ 177          u16 Temp_Freq=0;
+ 178          //信息控件清空
+ 179          u16 Message_Val=0xFFFF;
+ 180          //页面切换变量值
+ 181          u16 Page_Change_Val=0;
+ 182          //密码
+ 183          u32 Password=0;
+ 184          //当前页面
+ 185          u16 PageNow = 0;
+ 186          //语音计时
+ 187          u16 M4G6_ct = 0;
+ 188          
+ 189          
+ 190          
+ 191          
+ 192          
+ 193          
+ 194          /*****************************************************************************
+ 195           函 数 名  : void INIT_CPU(void)
+ 196           功能描述  : CPU初始化函数
+ 197                根据实际使用外设修改或单独配置
+ 198           输入参数  :  
+ 199           输出参数  : 
+ 200           修改历史  :
+ 201            1.日    期   : 2019年4月1日
+ 202              作    者   : chengjing
+ 203              修改内容   : 创建
+ 204          *****************************************************************************/ 
+ 205          void INIT_CPU(void)
+ 206          {
+ 207   1          EA=0;
+ 208   1          RS0=0;
+ 209   1          RS1=0;
+ 210   1      
+ 211   1      //     CKCON=0x00;
+ 212   1      //     T2CON=0x70;
+ 213   1      //     DPC=0x00;
+ 214   1      //     PAGESEL=0x01;
+ 215   1      //     D_PAGESEL=0x02;   //DATA RAM  0x8000-0xFFFF
+ 216   1          MUX_SEL=0x60;   //UART2,UART2开启，WDT关闭
+ 217   1          RAMMODE=0x00;
+ 218   1          PORTDRV=0x01;   //驱动强度+/-8mA
+ 219   1          IEN0=0x00;      //关闭所有中断
+ 220   1          IEN1=0x00;
+ 221   1          IEN2=0x00;
+ 222   1          IP0=0x00;      //中断优先级默认
+ 223   1          IP1=0x00;
+ 224   1      
+ 225   1          WDT_OFF();      //关闭开门狗
+ 226   1      
+ 227   1          //IO口配置
+ 228   1          P0=0x00;
+ 229   1          P1=0x00;
+ 230   1          P2=0x00;
+ 231   1          P3=0x00;
+ 232   1          P0MDOUT=0x10;
+ 233   1          P1MDOUT=0x00;
+ 234   1          P2MDOUT=0x00; 
+ 235   1          P3MDOUT=0x00;
+ 236   1        
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 5   
+
+ 237   1        //UART2配置8N1  115200       有倍频，和UART3不一样
+ 238   1          ADCON=0x80;
+ 239   1          SCON0=0x50;
+ 240   1          SREL0H=0x03;        //FCLK/64*(1024-SREL1)
+ 241   1          SREL0L=0xE4;
+ 242   1          
+ 243   1        //UART3配置8N1  115200 
+ 244   1          SCON1=0xD0;       //8N1
+ 245   1      //     SCON1=0xd0;        //偶校验
+ 246   1      //     SCON1=0xdc;        //奇校验
+ 247   1          SREL1H=0x03;        //FCLK/64*(1024-SREL1)
+ 248   1          SREL1L=0xC8;
+ 249   1          
+ 250   1          //UART4配置8N1      115200
+ 251   1          SCON2T=0x80;
+ 252   1          SCON2R=0x80;
+ 253   1          BODE2_DIV_H=0x00;     //FCLK/8*DIV
+ 254   1          BODE2_DIV_L=0xE0;
+ 255   1      
+ 256   1          //UART5配置8N1      115200
+ 257   1          SCON3T=0x80;
+ 258   1          SCON3R=0x80;
+ 259   1          BODE3_DIV_H=0x00;       //FCLK/8*DIV
+ 260   1          BODE3_DIV_L=0xE0;
+ 261   1      
+ 262   1          
+ 263   1          TMOD=0x11;          //16位定时器
+ 264   1          //T0
+ 265   1          TH0=0x00;
+ 266   1          TL0=0x00;
+ 267   1          TR0=0x00;
+ 268   1      
+ 269   1          //T1
+ 270   1          TH1=0x00;
+ 271   1          TL1=0x00;
+ 272   1          TR1=0x00;
+ 273   1          
+ 274   1      
+ 275   1          //T2  Autoload模式
+ 276   1          T2CON=0x70;
+ 277   1          TH2=0x00;
+ 278   1          TL2=0x00;
+ 279   1          TRL2H=0xBC;
+ 280   1          TRL2L=0xCD;        //1ms的定时器
+ 281   1      }
+ 282          
+ 283          /*****************************************************************************
+ 284           函 数 名  : void PORT_Init(void)
+ 285           功能描述  : 端口初始化函数
+ 286           输入参数  :  
+ 287           输出参数  : 
+ 288           修改历史  :
+ 289            1.日    期   : 2019年4月1日
+ 290              作    者   : chengjing
+ 291              修改内容   : 创建
+ 292          *****************************************************************************/ 
+ 293          void PORT_Init(void)
+ 294          {
+ 295   1        P0MDOUT |= 0x02;  //初始化P0.1为输出，485控制
+ 296   1        P1MDOUT |= 0x1E;  //初始化P1.1 P1.2 P1.3 P1.4为输出
+ 297   1        P2MDOUT |= 0x02;  //初始化P2.1为输出
+ 298   1      }
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 6   
+
+ 299          
+ 300          
+ 301          /*****************************************************************************
+ 302           函 数 名  : void RTC_Init(void)
+ 303           功能描述  : RTC时间初始化
+ 304           输入参数  :   
+ 305           输出参数  : 
+ 306           修改历史  :
+ 307            1.日    期   : 2019年4月2日
+ 308              作    者   : chengjing
+ 309              修改内容   : 创建
+ 310          *****************************************************************************/
+ 311          // void RTC_Init(void)
+ 312          // {
+ 313          //  real_time.year=time_set_init[0];
+ 314          //  real_time.month=time_set_init[1];
+ 315          //  real_time.day=time_set_init[2];
+ 316          //  real_time.hour=time_set_init[3];
+ 317          //  real_time.min=time_set_init[4];
+ 318          //  real_time.sec=time_set_init[5];
+ 319          //  write_dgus_vp(0x0010,(u8*)&real_time.year,4);
+ 320          // }
+ 321          
+ 322          
+ 323          /*****************************************************************************
+ 324           函 数 名  : void System_Parm_Init(void)
+ 325           功能描述  : 系统参数初始化，读取保存Nor Flash区域和22.bin文件系统参数，并配置软件
+ 326                版本号等参数。
+ 327           输入参数  :   
+ 328           输出参数  : 
+ 329           修改历史  :
+ 330            1.日    期   : 2019年5月16日
+ 331              作    者   : chengjing
+ 332              修改内容   : 创建
+ 333          *****************************************************************************/
+ 334          void System_Parm_Init(void)
+ 335          {
+ 336   1        Read_Nor_Flash();   //读Nor Flash
+ 337   1        delay_ms(5);
+ 338   1        read_dgus_vp(MAGIC_NUMBER,(u8*)&Magic_Number,1);  
+ 339   1        if(Magic_Number!=0x5AA5)
+ 340   1        {
+ 341   2          Magic_Number=0x5AA5;
+ 342   2          write_dgus_vp(MAGIC_NUMBER,(u8*)&Magic_Number,1);
+ 343   2          Parm_Reset_Init();
+ 344   2          Write_Nor_Flash();
+ 345   2          delay_ms(5);
+ 346   2        }
+ 347   1        write_dgus_vp(SOFT_VER_ADDR,(u8*)Soft_Ver,(sizeof(Soft_Ver)/2+1));    //写软件版本
+ 348   1        TC_Status=1;
+ 349   1        write_dgus_vp(SWITCH,(u8*)&TC_Status,1);                //写入温控器状态
+ 350   1        Remote_Update_Status=0;
+ 351   1        write_dgus_vp(REMOTE_UPDATE,(u8*)&Remote_Update_Status,1);        //远程更新无
+ 352   1        read_dgus_vp(PASSWORD_ADDR,(u8*)&Password,2);   //读温度设置数
+ 353   1        if(Password==0)
+ 354   1        {
+ 355   2          Password=666666;
+ 356   2        } 
+ 357   1        read_dgus_vp(TEMPERATURE_PRECISION,(u8*)&Temperature_Precision,1);    //读温度设置数
+ 358   1        read_dgus_vp(TEMP_SET,(u8*)&Temperature_Set_Val,1);
+ 359   1        Set_Temper_Display_Val=Temperature_Set_Val/10;
+ 360   1        Set_Temper_Display_Val_Dec=Temperature_Set_Val%10;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 7   
+
+ 361   1        write_dgus_vp(SET_TEMP_VALUE,(u8*)&Set_Temper_Display_Val,1);
+ 362   1        write_dgus_vp(SET_TEMP_VAL_DEC,(u8*)&Set_Temper_Display_Val_Dec,1);   //写温度设置值
+ 363   1        if((Temperature_Precision!=0)&&(Temperature_Precision!=1))
+ 364   1        {
+ 365   2          Temperature_Precision=1;
+ 366   2        }
+ 367   1        if(Temperature_Precision==0)
+ 368   1        {
+ 369   2          Temp_Pre=5;   //方便测试，后续修改为5
+ 370   2        }
+ 371   1        else if(Temperature_Precision==1)
+ 372   1        {
+ 373   2          Temp_Pre=10;
+ 374   2        }
+ 375   1        read_dgus_vp(TEMPERATURE_UPPER,(u8*)&Temperature_Upper,1);        //读温度设置上下限
+ 376   1        read_dgus_vp(TEMPERATURE_LOWER,(u8*)&Temperature_Lower,1);
+ 377   1        if((Temperature_Upper==0)||(Temperature_Lower==0)||(Temperature_Upper<=Temperature_Lower))
+ 378   1        {
+ 379   2          Temperature_Upper=320;
+ 380   2          Temperature_Lower=160;
+ 381   2        }
+ 382   1        read_dgus_vp(TEMPERATURE_COEFFICIENT,(u8*)Temp_Coef,3);         //读温度系数
+ 383   1        if((Temp_Coef[0]<=0)||(Temp_Coef[1]<=0)||(Temp_Coef[0]!=Temp_Coef[1]+10))
+ 384   1        {
+ 385   2          Temp_Coef[0]=10;
+ 386   2          Temp_Coef[1]=0;
+ 387   2          Temp_Coef[2]=-600;
+ 388   2        }
+ 389   1        read_dgus_vp(CHANGE_PAGE,(u8*)Page_Change,10);      //读取切换页面参数
+ 390   1        read_dgus_vp(SCREEN_SAVER,(u8*)Screen_Saver_Parm,3);  //读取屏保页面参数
+ 391   1        read_dgus_vp(ALS,(u8*)&ALS_Function,1);       //是否有人体接近感应功能
+ 392   1        Message_Val=0xFFFF;
+ 393   1        write_dgus_vp(MESSAGE_DATA,(u8*)&Message_Val,1);
+ 394   1        read_dgus_vp(TIMER1_WEEK,(u8*)&tim_week_c[0],1);
+ 395   1        read_dgus_vp(TIMER1_TIME_SEED_MODE,(u8*)&tim_per_val[0][0],16); 
+ 396   1        Week_Val(0);
+ 397   1        read_dgus_vp(TIMER2_WEEK,(u8*)&tim_week_c[1],1);
+ 398   1        read_dgus_vp(TIMER2_TIME_SEED_MODE,(u8*)&tim_per_val[1][0],16); 
+ 399   1        Week_Val(1);  
+ 400   1        read_dgus_vp(TIMER3_WEEK,(u8*)&tim_week_c[2],1);
+ 401   1        read_dgus_vp(TIMER3_TIME_SEED_MODE,(u8*)&tim_per_val[2][0],16);
+ 402   1        Week_Val(2);
+ 403   1        RTC_init();
+ 404   1      //  P8563_init();             //时间初始化，防止出现不正确的时间
+ 405   1        Temperature_To_Set_Flag=0;      //初始化值
+ 406   1        Wind_Speed_Config_Flag=0;     //风速设置
+ 407   1        Mode_Config_Flag=0;         //模式设置
+ 408   1        Close_Valve_Flag=0;         //开继电器
+ 409   1        Power_Flag=0;
+ 410   1        TC_Status=2;
+ 411   1        Temp_time=200;
+ 412   1        Temp_Freq=10;
+ 413   1        Temperature_Real=260;
+ 414   1        write_dgus_vp(TEMP_CURRENT,(u8*)&Temperature_Real,1);
+ 415   1        Temperatrue_Real_Old=Temperature_Real;
+ 416   1        read_dgus_vp(PIC_NOW,(u8*)&PageNow,1);
+ 417   1        if(PageNow==27)
+ 418   1        {
+ 419   2          Return_Main_page();
+ 420   2        }
+ 421   1        
+ 422   1        movie_icon = 1;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 8   
+
+ 423   1        write_dgus_vp(0x2702,(u8*)&movie_icon,1);     //首页动图
+ 424   1      }
+ 425          
+ 426          
+ 427          
+ 428          
+ 429          
+ 430          
+ 431          /*****************************************************************************
+ 432           函 数 名  : void Read_Nor_Flash(void)
+ 433           功能描述  : 读nor flash系统参数，固定为25E0-26FF的值
+ 434           输入参数  :   
+ 435           输出参数  : 
+ 436           修改历史  :
+ 437            1.日    期   : 2019年5月2日
+ 438              作    者   : chengjing
+ 439              修改内容   : 创建
+ 440          *****************************************************************************/
+ 441          void Read_Nor_Flash(void)
+ 442          { 
+ 443   1        write_dgus_vp(NOR_FLASH,(u8*)read_flash,4);
+ 444   1        do
+ 445   1        {
+ 446   2          delay_ms(5);
+ 447   2          read_dgus_vp(NOR_FLASH,(u8*)read_flash_status,4);
+ 448   2        }while(read_flash_status[0]!=0);
+ 449   1      }
+ 450          
+ 451          
+ 452          /*****************************************************************************
+ 453           函 数 名  : void Write_Nor_Flash(void)
+ 454           功能描述  : 写nor flash系统参数，固定为25E0-26FF的值
+ 455           输入参数  :   
+ 456           输出参数  : 
+ 457           修改历史  :
+ 458            1.日    期   : 2019年5月2日
+ 459              作    者   : chengjing
+ 460              修改内容   : 创建
+ 461          *****************************************************************************/
+ 462          void Write_Nor_Flash(void)
+ 463          {
+ 464   1        write_dgus_vp(NOR_FLASH,(u8*)write_flash,4);
+ 465   1        do
+ 466   1        {
+ 467   2          delay_ms(5);
+ 468   2          read_dgus_vp(NOR_FLASH,(u8*)read_flash_status,4);   
+ 469   2        }while(read_flash_status[0]!=0);
+ 470   1      }
+ 471          
+ 472          
+ 473          /*****************************************************************************
+ 474           函 数 名  : void Save_Data_Handler(void)
+ 475           功能描述  : 保存nor flash的值，参数设置完30s后保存，避免短时间重复保存
+ 476           输入参数  :   
+ 477           输出参数  : 
+ 478           修改历史  :
+ 479            1.日    期   : 2019年5月2日
+ 480              作    者   : chengjing
+ 481              修改内容   : 创建
+ 482          *****************************************************************************/
+ 483          void Save_Data_Handler(void)
+ 484          {
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 9   
+
+ 485   1        if((Parm_Change_Flag&0x01)==0x01)
+ 486   1        {
+ 487   2          if((Parm_Change_Flag&0x10)==0x10)
+ 488   2          {
+ 489   3            if(Parm_Change_Count>5000)
+ 490   3            {
+ 491   4              Parm_Change_Count_Val++;
+ 492   4              if(Parm_Change_Count_Val>6)
+ 493   4              {
+ 494   5                Write_Nor_Flash();
+ 495   5                Parm_Change_Flag=0;
+ 496   5                Parm_Change_Count_Val=0;
+ 497   5              }
+ 498   4            }
+ 499   3          }
+ 500   2          else
+ 501   2          {
+ 502   3            Parm_Change_Flag |= 0x10;
+ 503   3            Parm_Change_Count=0;
+ 504   3            Parm_Change_Count_Val=0;
+ 505   3          }
+ 506   2        }
+ 507   1      }
+ 508          
+ 509          
+ 510          
+ 511          
+ 512          
+ 513          /*****************************************************************************
+ 514           函 数 名  : void Key_Handler(void)
+ 515           功能描述  : 电源开关处理函数
+ 516           输入参数  :  
+ 517           输出参数  : 
+ 518           修改历史  :
+ 519            1.日    期   : 2019年5月17日
+ 520              作    者   : chengjing
+ 521              修改内容   : 物理按键驱动，往按键驱动值里面写值
+ 522                  2000：D1:5A:按键有效    D0:01：单次，10：长按（3S）
+ 523                  2001:0101：KEY1,0102:KEY2:0103:KEY3...
+ 524          *****************************************************************************/ 
+ 525          void Key_Handler(void)
+ 526          {
+ 527   1        if(Power_Flag==1)
+ 528   1        {
+ 529   2          if(KEY1_Vin_F==0)
+ 530   2          {
+ 531   3            delay_ms(10);     //消抖
+ 532   3            if(KEY1_Vin_F==0)
+ 533   3            {
+ 534   4              Key_Count=0;
+ 535   4              while(1)
+ 536   4              {
+ 537   5                if(KEY1_Vin_F==1)
+ 538   5                {
+ 539   6                  break;
+ 540   6                }
+ 541   5                delay_ms(1);
+ 542   5              }
+ 543   4              if(Key_Count<3000)
+ 544   4              {
+ 545   5                Key_Status=0x5A01;
+ 546   5              }
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 10  
+
+ 547   4              else
+ 548   4              {
+ 549   5                Key_Status=0x5A10;          
+ 550   5              }
+ 551   4              Key_Value=0x0101;
+ 552   4              write_dgus_vp(KEY_STATUS,(u8*)&Key_Status,1);
+ 553   4              write_dgus_vp(KEY_VALUE,(u8*)&Key_Value,1);
+ 554   4              Key_Scheduling_Event_Handler();
+ 555   4            }
+ 556   3          }
+ 557   2        }
+ 558   1        else
+ 559   1        {
+ 560   2          if(KEY1_Vin_F==1)
+ 561   2          {
+ 562   3            delay_ms(10);
+ 563   3            if(KEY1_Vin_F==1)
+ 564   3            {
+ 565   4              Power_Flag=1;
+ 566   4            }
+ 567   3          }
+ 568   2        }
+ 569   1      }
+ 570          
+ 571          /*****************************************************************************
+ 572           函 数 名  : void Key_Scheduling_Event_Handler(void)
+ 573           功能描述  : 物理按键调度时间处理，对物理按键键值和当前页面处理实际功能
+ 574           输入参数  :   
+ 575           输出参数  : 
+ 576           修改历史  :
+ 577            1.日    期   : 2019年5月2日
+ 578              作    者   : chengjing
+ 579              修改内容   : 创建
+ 580          *****************************************************************************/
+ 581          void Key_Scheduling_Event_Handler(void)
+ 582          {
+ 583   1        read_dgus_vp(KEY_STATUS,(u8*)&Key_Status,1);
+ 584   1        if((Key_Status&0xFF00)==0x5A00)
+ 585   1        {
+ 586   2          read_dgus_vp(KEY_VALUE,(u8*)&Key_Value,1);
+ 587   2          if(((Key_Status&0xFF)==0x01)&&(Key_Value==0x0101))
+ 588   2          {
+ 589   3            Touch_Event_Flag=0x0010;
+ 590   3            write_dgus_vp(TOUCH_EVENT_FLAG,(u8*)&Touch_Event_Flag,1);
+ 591   3          }
+ 592   2          else if(((Key_Status&0xFF)==0x10)&&(Key_Value==0x0101))
+ 593   2          {
+ 594   3            Touch_Event_Flag=0x0011;
+ 595   3            write_dgus_vp(TOUCH_EVENT_FLAG,(u8*)&Touch_Event_Flag,1);
+ 596   3          }
+ 597   2        }
+ 598   1      }
+ 599          
+ 600          
+ 601          /*****************************************************************************
+ 602           函 数 名  : void Enter_Main_Page(void)
+ 603           功能描述  : 进入主页面，回复亮度，开继电器
+ 604           输入参数  :   
+ 605           输出参数  : 
+ 606           修改历史  :
+ 607            1.日    期   : 2019年5月2日
+ 608              作    者   : chengjing
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 11  
+
+ 609              修改内容   : 创建
+ 610          *****************************************************************************/
+ 611          void Enter_Main_Page(void)
+ 612          {
+ 613   1      //  page_set[0]=0x5A;
+ 614   1      //  page_set[1]=0x01;
+ 615   1      //  page_set[2]=0x00;
+ 616   1      //  switch (Mode)
+ 617   1      //  {
+ 618   1      //    case 1: page_set[3]= 19;break;    //制冷
+ 619   1      //    case 2: page_set[3]= 10;break;    //制热
+ 620   1      //    case 3: page_set[3]= 1;break;     //送风
+ 621   1      //  }
+ 622   1      //  write_dgus_vp(PIC_SET,page_set,2);
+ 623   1        Return_Main_page();
+ 624   1      //  write_dgus_vp(PIC_SET,page_set_to_0,2);   //进入页面0
+ 625   1        read_dgus_vp(SCREEN_BRIGHTNESS,(u8*)&led_new,1);
+ 626   1        led_on[0]=led_new&0xFF;
+ 627   1        write_dgus_vp(LED_CONFIG,led_on,2);     //恢复亮度
+ 628   1        Close_Valve_Flag=0;             //开继电器  
+ 629   1      }
+ 630          
+ 631          
+ 632          /*****************************************************************************
+ 633           函 数 名  : void Standby_Handler(void)
+ 634           功能描述  : 待机处理，熄屏，关继电器
+ 635           输入参数  :   
+ 636           输出参数  : 
+ 637           修改历史  :
+ 638            1.日    期   : 2019年5月2日
+ 639              作    者   : chengjing
+ 640              修改内容   : 创建
+ 641          *****************************************************************************/
+ 642          void Standby_Handler(void)
+ 643          {
+ 644   1        write_dgus_vp(LED_CONFIG,led_off,2);
+ 645   1        Close_Valve_Flag=0x01;
+ 646   1        Valve_Config_Flag=0;
+ 647   1        TC_Status=2;
+ 648   1        TC_Status_Old=TC_Status;
+ 649   1        write_dgus_vp(SWITCH,(u8*)&TC_Status,1);  //温控器状态休眠
+ 650   1      }
+ 651          
+ 652          /*****************************************************************************
+ 653           函 数 名  : void Boot_Handler(void)
+ 654           功能描述  : 从待机到开机，进入首页，开继电器
+ 655           输入参数  :   
+ 656           输出参数  : 
+ 657           修改历史  :
+ 658            1.日    期   : 2019年5月2日
+ 659              作    者   : chengjing
+ 660              修改内容   : 创建
+ 661          *****************************************************************************/
+ 662          void Boot_Handler(void)
+ 663          { 
+ 664   1        Enter_Main_Page();
+ 665   1        Sleep_Flag=0;
+ 666   1        Sleep_Count=0;        //休眠计数清零
+ 667   1        Sleep_Count_M=0;
+ 668   1        Screen_Flag=0;        //首次进入屏保标志  
+ 669   1        Wind_Speed_Old_Val=0;
+ 670   1        Mode_Old_Val=0;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 12  
+
+ 671   1        TC_Status=1;
+ 672   1        TC_Status_Old=TC_Status;
+ 673   1        write_dgus_vp(SWITCH,(u8*)&TC_Status,1);
+ 674   1      }
+ 675          
+ 676          
+ 677          
+ 678          /*****************************************************************************
+ 679           函 数 名  : void Close_Valve(void)
+ 680           功能描述  : 关闭继电器函数
+ 681           输入参数  :  
+ 682           输出参数  : 
+ 683           修改历史  :
+ 684            1.日    期   : 2019年4月12日
+ 685              作    者   : chengjing
+ 686              修改内容   : 创建
+ 687          *****************************************************************************/ 
+ 688          void Close_Valve(void)
+ 689          {
+ 690   1        if((Close_Valve_Flag&0x01)==0x01)
+ 691   1        {
+ 692   2          if(Valve_Config_Flag!=1)
+ 693   2          {
+ 694   3            if((Close_Valve_Flag&0x10)==0x10)
+ 695   3            {
+ 696   4              if(Wait_Count>1000)
+ 697   4              {
+ 698   5                Low_Speed_Valve=0;
+ 699   5                Medium_Speed_Valve=0;
+ 700   5                High_Speed_Valve=0;
+ 701   5                Speed_Valve_Status=0;
+ 702   5                write_dgus_vp(SPEED_VALVE,(u8*)&Speed_Valve_Status,1);
+ 703   5              }
+ 704   4              if(Wait_Count>2000)
+ 705   4              {
+ 706   5                Water_Valve=0;
+ 707   5                Water_Valve_Status=0;
+ 708   5                write_dgus_vp(WATER_VALVE,(u8*)&Water_Valve_Status,1);
+ 709   5                Valve_Config_Flag=1;
+ 710   5              }
+ 711   4            }
+ 712   3            else
+ 713   3            {
+ 714   4              Wait_Count=0;
+ 715   4              Close_Valve_Flag|=0x10;
+ 716   4            }
+ 717   3          }
+ 718   2        }
+ 719   1      }
+ 720          
+ 721          /*****************************************************************************
+ 722           函 数 名  : void Sleep_Handler(void)
+ 723           功能描述  : 休眠处理函数
+ 724           输入参数  :    
+ 725           输出参数  : 
+ 726           修改历史  :
+ 727            1.日    期   : 2019年4月12日
+ 728              作    者   : chengjing
+ 729              修改内容   : 创建
+ 730          *****************************************************************************/ 
+ 731          void Sleep_Handler(void)
+ 732          {
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 13  
+
+ 733   1        char temp=0;
+ 734   1        read_dgus_vp(TP_STATUS,TP_Status_New,4);  
+ 735   1        temp=strcmp(TP_Status_New,TP_Status_Old);
+ 736   1        if(temp==0)   //无触摸
+ 737   1        {
+ 738   2          if(Sleep_Flag==0)
+ 739   2          { 
+ 740   3            read_dgus_vp(PIC_NOW,(u8*)&PageNow,1);
+ 741   3            if(PageNow == 30)
+ 742   3            {
+ 743   4              if(M4G6_ct==0)
+ 744   4              {
+ 745   5                Return_Main_page();
+ 746   5              }
+ 747   4            }
+ 748   3            read_dgus_vp(SCREEN_SAVER_TIME,(u8*)&sleep_time,1);
+ 749   3            if(sleep_time==1)       //时间超过1min  
+ 750   3            {
+ 751   4              if(Sleep_Count>=60000)    
+ 752   4              {
+ 753   5                Sleep_Flag=1;
+ 754   5              }
+ 755   4            }
+ 756   3            else if(sleep_time==2)      //时间超过5min
+ 757   3            {
+ 758   4              if(Sleep_Count_M>=5)  
+ 759   4              {         
+ 760   5                Sleep_Flag=1;
+ 761   5              }
+ 762   4              else
+ 763   4              {
+ 764   5                if(Sleep_Count>=60000)      
+ 765   5                {
+ 766   6                  Sleep_Count_M++;
+ 767   6                  Sleep_Count=0;
+ 768   6                }
+ 769   5              }
+ 770   4            }
+ 771   3            else if(sleep_time==3)
+ 772   3            {
+ 773   4              //永不休眠
+ 774   4            }
+ 775   3            if(Sleep_Flag==1)
+ 776   3            {
+ 777   4              read_dgus_vp(SCREEN_SAVER_TYPE,(u8*)&Sleep_Type,1);
+ 778   4              Parm_Upload_Handler();
+ 779   4            }
+ 780   3          }
+ 781   2          if(Sleep_Flag==1)
+ 782   2          {     
+ 783   3            Screen_Saver_Handler(Sleep_Type);     //进入屏保
+ 784   3          }
+ 785   2        }
+ 786   1        else    //有触摸
+ 787   1        {
+ 788   2            read_dgus_vp(PIC_NOW,(u8*)&PageNow,1);
+ 789   2            if(PageNow == 30)
+ 790   2            {
+ 791   3              M4G6_ct = 10000;
+ 792   3            }
+ 793   2          memcpy(TP_Status_Old,TP_Status_New,sizeof(TP_Status_New));    
+ 794   2          if(Sleep_Flag==1) //休眠模式或者屏保模式
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 14  
+
+ 795   2          {
+ 796   3            Enter_Main_Page();                          
+ 797   3          }
+ 798   2          Sleep_Flag=0;
+ 799   2          Sleep_Count=0;        //休眠计数清零
+ 800   2          Sleep_Count_M=0;
+ 801   2          Screen_Flag=0;        //首次进入屏保标志  
+ 802   2          Close_Valve_Flag=0; 
+ 803   2          TC_Status=1;
+ 804   2          write_dgus_vp(SWITCH,(u8*)&TC_Status,1);  //温控器正常状态
+ 805   2        }
+ 806   1      }
+ 807          
+ 808          
+ 809          
+ 810          /*****************************************************************************
+ 811           函 数 名  : void Parm_Set_Error_Handler(void)
+ 812           功能描述  : 参数设置错误处理函数
+ 813           输入参数  :  
+ 814           输出参数  : 
+ 815           修改历史  :
+ 816            1.日    期   : 2019年4月26日
+ 817              作    者   : chengjing
+ 818              修改内容   : 创建
+ 819          *****************************************************************************/ 
+ 820          void Parm_Set_Error_Handler(void)
+ 821          {
+ 822   1        u8 i=0;
+ 823   1        read_dgus_vp(PARM_SET_ERROR,(u8*)&Parm_Set_Error_Val,1);
+ 824   1        if(Parm_Set_Error_Val>0)
+ 825   1        {
+ 826   2          
+ 827   2          switch(Parm_Set_Error_Val)
+ 828   2          {
+ 829   3            case  0x1001:
+ 830   3              i=0;
+ 831   3              break;
+ 832   3            case  0x1002:
+ 833   3              i=1;
+ 834   3              break;
+ 835   3            case  0x1003:
+ 836   3              i=2;
+ 837   3              
+ 838   3              break;
+ 839   3            case  0x1004: 
+ 840   3              i=3;
+ 841   3              break;
+ 842   3            case  0x1005: 
+ 843   3              i=4;
+ 844   3              break;
+ 845   3            case  0x1006:
+ 846   3              i=5;
+ 847   3              break;
+ 848   3            case  0x1007:
+ 849   3              i=6;        
+ 850   3              break;
+ 851   3            default:
+ 852   3              break;
+ 853   3          }
+ 854   2          Page_Change_Handler(i);
+ 855   2          Parm_Set_Error_Val=0;
+ 856   2          write_dgus_vp(PARM_SET_ERROR,(u8*)&Parm_Set_Error_Val,1);
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 15  
+
+ 857   2        }
+ 858   1      }
+ 859          
+ 860          /*****************************************************************************
+ 861           函 数 名  : void Warning_Event_Handler(void)
+ 862           功能描述  : 告警事件处理
+ 863           输入参数  :  
+ 864           输出参数  : 
+ 865           修改历史  :
+ 866            1.日    期   : 2019年4月26日
+ 867              作    者   : chengjing
+ 868              修改内容   : 创建
+ 869          *****************************************************************************/ 
+ 870          void Warning_Event_Handler(void)
+ 871          {
+ 872   1        u8 i=0;
+ 873   1        read_dgus_vp(WARNING_EVENT,(u8*)&Warning_Val,1);
+ 874   1        if(Warning_Val>0)
+ 875   1        {
+ 876   2          switch(Warning_Val)
+ 877   2          {
+ 878   3            case  0x1001:
+ 879   3              i=6;        
+ 880   3              break;
+ 881   3            case  0x1002:
+ 882   3              i=7;
+ 883   3              break;
+ 884   3            default:
+ 885   3              break;
+ 886   3          }
+ 887   2          Page_Change_Handler(i);
+ 888   2          Warning_Val=0;
+ 889   2          write_dgus_vp(WARNING_EVENT,(u8*)&Warning_Val,1);
+ 890   2        }   
+ 891   1      }
+ 892          
+ 893          
+ 894          /*****************************************************************************
+ 895           函 数 名  : void Page_Change_Handler(u8 n)
+ 896           功能描述  : 页面切换函数
+ 897           输入参数  :    n:需切换的页面数
+ 898           输出参数  : 
+ 899           修改历史  :
+ 900            1.日    期   : 2019年4月26日
+ 901              作    者   : chengjing
+ 902              修改内容   : 创建
+ 903          *****************************************************************************/ 
+ 904          void Page_Change_Handler(u8 n)
+ 905          {
+ 906   1        page_set[0]=0x5A;
+ 907   1        page_set[1]=0x01;
+ 908   1        page_set[2]=0x00;
+ 909   1        page_set[3]=Page_Change[n];
+ 910   1        write_dgus_vp(PIC_SET,page_set,2);
+ 911   1      }
+ 912          
+ 913          
+ 914          
+ 915          
+ 916          /*****************************************************************************
+ 917           函 数 名  : void Screen_Saver_Handler(u16 type)
+ 918           功能描述  : 屏保处理函数
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 16  
+
+ 919           输入参数  :   type：屏保类型 
+ 920           输出参数  : 
+ 921           修改历史  :
+ 922            1.日    期   : 2019年4月26日
+ 923              作    者   : chengjing
+ 924              修改内容   : 创建
+ 925          *****************************************************************************/ 
+ 926          void Screen_Saver_Handler(u16 type)
+ 927          {
+ 928   1        switch(type)
+ 929   1        {
+ 930   2          case  1:    //传统  63~70图片
+ 931   2            if(Screen_Flag==1)
+ 932   2            {
+ 933   3              //保持页面，不用进行操作
+ 934   3            }
+ 935   2            else
+ 936   2            {
+ 937   3              page_set[0]=0x5A;
+ 938   3              page_set[1]=0x01;
+ 939   3              page_set[2]=0x00;
+ 940   3              page_set[3]=(u8)Screen_Saver_Parm[0];
+ 941   3              write_dgus_vp(PIC_SET,page_set,2);
+ 942   3              Screen_Flag=1;
+ 943   3            }
+ 944   2            break;
+ 945   2          case  2:    //相册  
+ 946   2            if(Screen_Flag==1)
+ 947   2            {
+ 948   3              //保持页面，不用进行操作
+ 949   3            }
+ 950   2            else
+ 951   2            {
+ 952   3              page_set[0]=0x5A;
+ 953   3              page_set[1]=0x01;
+ 954   3              page_set[2]=0x00;
+ 955   3              page_set[3]=(u8)Screen_Saver_Parm[1];
+ 956   3              write_dgus_vp(PIC_SET,page_set,2);
+ 957   3              Screen_Flag=1;
+ 958   3              Page_Change_Val=1;
+ 959   3              write_dgus_vp(0x2700,(u8*)&Page_Change_Val,1);
+ 960   3            }
+ 961   2            break;
+ 962   2          case  3:    //时钟
+ 963   2            if(Screen_Flag==1)
+ 964   2            {
+ 965   3              //保持页面，不用进行操作
+ 966   3            }
+ 967   2            else
+ 968   2            {
+ 969   3              page_set[0]=0x5A;
+ 970   3              page_set[1]=0x01;
+ 971   3              page_set[2]=0x00;
+ 972   3              page_set[3]=(u8)Screen_Saver_Parm[2];
+ 973   3              write_dgus_vp(PIC_SET,page_set,2);
+ 974   3              Screen_Flag=1;
+ 975   3            }
+ 976   2            break;
+ 977   2          default:
+ 978   2            break;
+ 979   2        }
+ 980   1      }
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 17  
+
+ 981          
+ 982          
+ 983          
+ 984          
+ 985          
+ 986          
+ 987          
+ 988          
+ 989          /*****************************************************************************
+ 990           函 数 名  : void Brightness_Handler(void)
+ 991           功能描述  : 亮度调节处理函数
+ 992           输入参数  :    
+ 993           输出参数  : 
+ 994           修改历史  :
+ 995            1.日    期   : 2019年4月12日
+ 996              作    者   : chengjing
+ 997              修改内容   : 创建
+ 998          *****************************************************************************/
+ 999          void Brightness_Handler(void)
+1000          {
+1001   1        read_dgus_vp(SCREEN_BRIGHTNESS,(u8*)&led_new,1);
+1002   1        if(led_new!=led_old)
+1003   1        {
+1004   2          led_old=led_new;
+1005   2          led_on[0]=led_new&0xFF;
+1006   2          write_dgus_vp(LED_CONFIG,led_on,2);
+1007   2        }
+1008   1        if(led_new==10) led_icon = 0;
+1009   1        else
+1010   1        {
+1011   2          led_icon = led_new/10;
+1012   2        }
+1013   1          write_dgus_vp(LED_ICON,(u8*)&led_icon,1);
+1014   1      }
+1015          
+1016          
+1017          
+1018          
+1019          /*****************************************************************************
+1020           函 数 名  : void Parm_Reset_Init(void)
+1021           功能描述  : 参数设置初始化
+1022           输入参数  :    
+1023           输出参数  : 
+1024           修改历史  :
+1025            1.日    期   : 2019年4月26日
+1026              作    者   : chengjing
+1027              修改内容   : 创建
+1028          *****************************************************************************/
+1029          void Parm_Reset_Init(void)
+1030          {
+1031   1        Wind_Speed=4;
+1032   1        write_dgus_vp(SPEED,(u8*)&Wind_Speed,1);  //风速
+1033   1        Mode=3;
+1034   1        write_dgus_vp(MODE,(u8*)&Mode,1);     //模式
+1035   1        movie_icon = 1;
+1036   1        write_dgus_vp(0x2702,(u8*)&movie_icon,1);     //首页动图
+1037   1        Alarm_Key[0]=0;
+1038   1        Alarm_Key[1]=0;
+1039   1        write_dgus_vp(ALARM_KEY,(u8*)Alarm_Key,2);        //闹钟开关
+1040   1        timer_key[0]=0;
+1041   1        timer_key[1]=0;
+1042   1        timer_key[2]=0;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 18  
+
+1043   1        write_dgus_vp(TIMER_KEY,(u8*)timer_key,3);        //定时器开关
+1044   1        Temperature_Set_Val=260;
+1045   1        write_dgus_vp(TEMP_SET,(u8*)&Temperature_Set_Val,1);    //设定温度            
+1046   1        led_new=0x50;
+1047   1        write_dgus_vp(SCREEN_BRIGHTNESS,(u8*)&led_new,1);     //屏幕亮度
+1048   1        alarm_val.alarm1_time=0;
+1049   1        alarm_val.alarm2_time=0;
+1050   1        alarm_val.alarm1_ring=1;
+1051   1        alarm_val.alarm2_ring=1;
+1052   1        write_dgus_vp(ALARM_VAL,(u8*)&alarm_val,4);         //闹钟时间铃声
+1053   1        Sleep_Type=1;
+1054   1        write_dgus_vp(SCREEN_SAVER_TYPE,(u8*)&Sleep_Type,1);
+1055   1        sleep_time=1; 
+1056   1        write_dgus_vp(SCREEN_SAVER_TIME,(u8*)&sleep_time,1);
+1057   1        memset(&tim_week_c[0],0,21);
+1058   1        tim_per_val[0][0].timer_time_start=0x081E;
+1059   1        tim_per_val[0][0].timer_time_end=0x0C00;
+1060   1        tim_per_val[0][0].timer_speed=1;
+1061   1        tim_per_val[0][0].time_temperture=26;
+1062   1        tim_per_val[0][1].timer_time_start=0x0C00;
+1063   1        tim_per_val[0][1].timer_time_end=0x0D00;
+1064   1        tim_per_val[0][1].timer_speed=1;
+1065   1        tim_per_val[0][1].time_temperture=26;
+1066   1        tim_per_val[0][2].timer_time_start=0x0D00;
+1067   1        tim_per_val[0][2].timer_time_end=0x1200;
+1068   1        tim_per_val[0][2].timer_speed=1;
+1069   1        tim_per_val[0][2].time_temperture=26;
+1070   1        tim_per_val[0][3].timer_time_start=0x1200;
+1071   1        tim_per_val[0][3].timer_time_end=0x0C00;
+1072   1        tim_per_val[0][3].timer_speed=1;
+1073   1        tim_per_val[0][3].time_temperture=26;
+1074   1        write_dgus_vp(TIMER1_WEEK,(u8*)&tim_week_c[0],1);
+1075   1        write_dgus_vp(TIMER1_TIME_SEED_MODE,(u8*)&tim_per_val[0][0],16);
+1076   1        tim_per_val[1][0].timer_time_start=0x081E;
+1077   1        tim_per_val[1][0].timer_time_end=0x0C00;
+1078   1        tim_per_val[1][0].timer_speed=1;
+1079   1        tim_per_val[1][0].time_temperture=26;
+1080   1        tim_per_val[1][1].timer_time_start=0x0C00;
+1081   1        tim_per_val[1][1].timer_time_end=0x0D00;
+1082   1        tim_per_val[1][1].timer_speed=1;
+1083   1        tim_per_val[1][1].time_temperture=26;
+1084   1        tim_per_val[1][2].timer_time_start=0x0D00;
+1085   1        tim_per_val[1][2].timer_time_end=0x1200;
+1086   1        tim_per_val[1][2].timer_speed=1;
+1087   1        tim_per_val[1][2].time_temperture=26;
+1088   1        tim_per_val[1][3].timer_time_start=0x1200;
+1089   1        tim_per_val[1][3].timer_time_end=0x0C00;
+1090   1        tim_per_val[1][3].timer_speed=1;
+1091   1        tim_per_val[1][3].time_temperture=26;
+1092   1        write_dgus_vp(TIMER2_WEEK,(u8*)&tim_week_c[1],1);
+1093   1        write_dgus_vp(TIMER2_TIME_SEED_MODE,(u8*)&tim_per_val[1][0],16);
+1094   1        tim_per_val[2][0].timer_time_start=0x081E;
+1095   1        tim_per_val[2][0].timer_time_end=0x0C00;
+1096   1        tim_per_val[2][0].timer_speed=1;
+1097   1        tim_per_val[2][0].time_temperture=26;
+1098   1        tim_per_val[2][1].timer_time_start=0x0C00;
+1099   1        tim_per_val[2][1].timer_time_end=0x0D00;
+1100   1        tim_per_val[2][1].timer_speed=1;
+1101   1        tim_per_val[2][1].time_temperture=26;
+1102   1        tim_per_val[2][2].timer_time_start=0x0D00;
+1103   1        tim_per_val[2][2].timer_time_end=0x1200;
+1104   1        tim_per_val[2][2].timer_speed=1;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 19  
+
+1105   1        tim_per_val[2][2].time_temperture=26;
+1106   1        tim_per_val[2][3].timer_time_start=0x1200;
+1107   1        tim_per_val[2][3].timer_time_end=0x0C00;
+1108   1        tim_per_val[2][3].timer_speed=1;
+1109   1        tim_per_val[2][3].time_temperture=26;
+1110   1        write_dgus_vp(TIMER3_WEEK,(u8*)&tim_week_c[2],1);
+1111   1        write_dgus_vp(TIMER3_TIME_SEED_MODE,(u8*)&tim_per_val[2][0],16);
+1112   1      }
+1113          
+1114          
+1115          
+1116          
+1117          
+1118          /*****************************************************************************
+1119           函 数 名  : void T0_Init(void)
+1120           功能描述  : 定时器0初始化  定时间隔1ms
+1121           输入参数  :   
+1122           输出参数  : 
+1123           修改历史  :
+1124            1.日    期   : 2019年4月2日
+1125              作    者   : chengjing
+1126              修改内容   : 创建
+1127          *****************************************************************************/
+1128          void T0_Init(void)
+1129          {
+1130   1          TMOD|=0x01;
+1131   1          TH0=T10uS>>8;        //1ms定时器
+1132   1          TL0=T10uS;
+1133   1          ET0=1;              //开启定时器0中断
+1134   1          EA=1;               //开总中断
+1135   1          TR0=1;              //开启定时器
+1136   1      }
+1137          
+1138          
+1139          /*****************************************************************************
+1140           函 数 名  : void T1_Init(void)
+1141           功能描述  : 定时器1初始化  定时间隔1ms
+1142           输入参数  :   
+1143           输出参数  : 
+1144           修改历史  :
+1145            1.日    期   : 2019年4月2日
+1146              作    者   : chengjing
+1147              修改内容   : 创建
+1148          *****************************************************************************/
+1149          void T1_Init(void)
+1150          {
+1151   1          TMOD|=0x01;
+1152   1          TH1=T1MS>>8;        //1ms定时器
+1153   1          TL1=T1MS;
+1154   1          ET1=1;              //开启定时器0中断
+1155   1          EA=1;               //开总中断
+1156   1          TR1=1;              //开启定时器
+1157   1      }
+1158          
+1159          
+1160          
+1161          /*****************************************************************************
+1162           函 数 名  : void T2_Init(void)
+1163           功能描述  : 定时器2初始化  定时间隔1ms
+1164           输入参数  :   
+1165           输出参数  : 
+1166           修改历史  :
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 20  
+
+1167            1.日    期   : 2019年4月2日
+1168              作    者   : chengjing
+1169              修改内容   : 创建
+1170          *****************************************************************************/
+1171          void T2_Init(void)
+1172          {
+1173   1          T2CON=0x70;
+1174   1          TH2=0x00;
+1175   1          TL2=0x00;
+1176   1          TRL2H=0xBC;
+1177   1          TRL2L=0xCD;        //1ms的定时器
+1178   1          IEN0|=0x20;     //开启定时器2
+1179   1          TR2=0x01;
+1180   1          EA=1;
+1181   1      }
+1182          
+1183          
+1184          
+1185          
+1186          
+1187          
+1188          /*****************************************************************************
+1189           函 数 名  : void read_dgus_vp(u32 addr,u8* buf,u16 len)
+1190           功能描述  : 读dgus地址的值
+1191           输入参数  :   addr：dgus地址值  len：读数据长度
+1192           输出参数  : buf：数据保存缓存区
+1193           修改历史  :
+1194            1.日    期   : 2019年4月2日
+1195              作    者   : chengjing
+1196              修改内容   : 创建
+1197          *****************************************************************************/
+1198          void read_dgus_vp(u32 addr,u8* buf,u16 len)
+1199          {
+1200   1          u32 OS_addr=0,OS_addr_offset=0;
+1201   1          u16 OS_len=0,OS_len_offset=0;
+1202   1          OS_addr=addr/2;
+1203   1          OS_addr_offset=addr%2;
+1204   1          ADR_H=(u8)(OS_addr>>16)&0xFF;
+1205   1          ADR_M=(u8)(OS_addr>>8)&0xFF;
+1206   1          ADR_L=(u8)OS_addr&0xFF;
+1207   1          ADR_INC=1;                 //DGUS  OS存储器地址在读写后自动加1
+1208   1          RAMMODE=0xAF;               //启动读模式
+1209   1          if(OS_addr_offset==1)       //首地址有偏移，修正
+1210   1          {
+1211   2              while(APP_ACK==0);      //等待
+1212   2              APP_EN=1;
+1213   2              while(APP_EN==1); 
+1214   2              *buf++=DATA1;
+1215   2              *buf++=DATA0;              
+1216   2              len--;
+1217   2              OS_addr_offset=0;
+1218   2          }
+1219   1          OS_len=len/2;
+1220   1          OS_len_offset=len%2;
+1221   1          if(OS_len_offset==1)
+1222   1          {
+1223   2               OS_len++;
+1224   2          }
+1225   1          while(OS_len--)
+1226   1          {
+1227   2              if((OS_len_offset==1)&&(OS_len==0))
+1228   2              {          
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 21  
+
+1229   3                  while(APP_ACK==0);
+1230   3                  APP_EN=1;
+1231   3                  while(APP_EN==1);       //读写执行结束
+1232   3                  *buf++=DATA3;
+1233   3                  *buf++=DATA2;           
+1234   3                  break;    
+1235   3              } 
+1236   2              while(APP_ACK==0);
+1237   2              APP_EN=1;
+1238   2              while(APP_EN==1);       //读写执行结束 
+1239   2              *buf++=DATA3;
+1240   2              *buf++=DATA2;
+1241   2              *buf++=DATA1;
+1242   2              *buf++=DATA0;                          
+1243   2          }   
+1244   1          RAMMODE=0x00;           //读写完成后RAMMODE必须置零
+1245   1        return; 
+1246   1      }
+1247          
+1248          
+1249          
+1250          
+1251          /*****************************************************************************
+1252           函 数 名  : void write_dgus_vp(u32 addr,u8* buf,u16 len)
+1253           功能描述  : 写dgus地址数据
+1254          输入参数  :  addr：写地址值 buf：写入的数据保存缓存区 len：字长度
+1255           输出参数  : 
+1256           修改历史  :
+1257            1.日    期   : 2019年4月2日
+1258              作    者   : chengjing
+1259              修改内容   : 创建
+1260          *****************************************************************************/
+1261          void write_dgus_vp(u32 addr,u8* buf,u16 len)
+1262          {
+1263   1          u32 OS_addr=0,OS_addr_offset=0;
+1264   1          u16 OS_len=0,OS_len_offset=0;
+1265   1          EA=0;
+1266   1          OS_addr=addr/2;
+1267   1          OS_addr_offset=addr%2; 
+1268   1          ADR_H=(u8)(OS_addr>>16)&0xFF;
+1269   1          ADR_M=(u8)(OS_addr>>8)&0xFF;
+1270   1          ADR_L=(u8)OS_addr&0xFF;
+1271   1          ADR_INC=0x01;                 //DGUS  OS存储器地址在读写后自动加1
+1272   1          RAMMODE=0x8F;               //启动写模式 
+1273   1          if(OS_addr_offset==1)
+1274   1          {
+1275   2              ADR_INC=0;
+1276   2              RAMMODE=0xAF;
+1277   2              while(APP_ACK==0);
+1278   2              APP_EN=1;
+1279   2              while(APP_EN==1);       //读写执行结束
+1280   2              ADR_INC=0x01; 
+1281   2              RAMMODE=0x8F;
+1282   2              while(APP_ACK==0);      
+1283   2              DATA1=*buf++;
+1284   2              DATA0=*buf++;
+1285   2              APP_EN=1;
+1286   2              while(APP_EN==1);       //读写执行结束
+1287   2              len--;
+1288   2              OS_addr_offset=0;
+1289   2          }
+1290   1          OS_len=len/2;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 22  
+
+1291   1          OS_len_offset=len%2; 
+1292   1          if(OS_len_offset==1)
+1293   1          {
+1294   2               OS_len++;
+1295   2          }
+1296   1          while(OS_len--)
+1297   1          {
+1298   2              if((OS_len_offset==1)&&(OS_len==0))
+1299   2              {
+1300   3                  ADR_INC=0;
+1301   3                  RAMMODE=0xAF;
+1302   3                  while(APP_ACK==0);
+1303   3                  APP_EN=1;                //增加一个读过程，以免写单字时会将另一个单字写0
+1304   3                  while(APP_EN==1);       //读写执行结束
+1305   3                  ADR_INC=0x01;
+1306   3                  RAMMODE=0x8F;
+1307   3                  while(APP_ACK==0);           
+1308   3                  DATA3=*buf++;
+1309   3                  DATA2=*buf++;
+1310   3                  APP_EN=1;
+1311   3                  while(APP_EN==1);       //读写执行结束
+1312   3                  break;
+1313   3              }
+1314   2              while(APP_ACK==0);        
+1315   2              DATA3=*buf++;
+1316   2              DATA2=*buf++;
+1317   2              DATA1=*buf++;
+1318   2              DATA0=*buf++;
+1319   2              APP_EN=1;
+1320   2              while(APP_EN==1);       //读写执行结束
+1321   2          } 
+1322   1          RAMMODE=0x00;       //读写完成后RAMMODE必须置零
+1323   1          EA=1;  
+1324   1        return;
+1325   1      }  
+1326          
+1327          
+1328          
+1329          
+1330          
+1331          /*****************************************************************************
+1332           函 数 名  : void Get_ADC_Value(void)
+1333           功能描述  : 得到adc采样的值
+1334           输入参数  :   
+1335           输出参数  : 
+1336           修改历史  :
+1337            1.日    期   : 2019年4月2日
+1338              作    者   : chengjing
+1339              修改内容   : 创建
+1340          *****************************************************************************/
+1341          void Get_ADC_Value(void)
+1342          {
+1343   1        static u16 temp[8]={0};
+1344   1        read_dgus_vp(AD_VALUE,(u8*)temp,8);
+1345   1        adc_val[0]+=temp[0];
+1346   1        adc_val[6]+=temp[6];
+1347   1        adc_val[7]+=temp[7];
+1348   1      }
+1349          
+1350          
+1351          
+1352           /**
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 23  
+
+1353              * @brief 得到NTC电阻值
+1354              *        先浮点型运算，在乘10000得到实际值
+1355              * @param [in] 
+1356              *      无
+1357              * @param [out]
+1358              *      无
+1359              * @retval 
+1360              *      无
+1361              */
+1362          /*****************************************************************************
+1363           函 数 名  : void Get_R_Value(void)
+1364           功能描述  : 得到电阻值
+1365           输入参数  :   
+1366           输出参数  : 
+1367           修改历史  :
+1368            1.日    期   : 2019年4月2日
+1369              作    者   : chengjing
+1370              修改内容   : 创建
+1371          *****************************************************************************/
+1372          void Get_R_Value(u16 n)
+1373          {
+1374   1        float R1_temp=0.0,R2_temp=0.0;
+1375   1        adc_value[0]=adc_val[0]/n;
+1376   1        adc_value[6]=adc_val[6]/n;
+1377   1        adc_value[7]=adc_val[7]/n;
+1378   1        R1_temp=adc_value[7]*1.0/(adc_value[6]-adc_value[7]);
+1379   1        R2_temp=adc_value[0]*1.0/(adc_value[6]-adc_value[0]);
+1380   1        R1_value=R1_temp*10000;
+1381   1        R2_value=R2_temp*10000; 
+1382   1      }
+1383          
+1384          
+1385          /*****************************************************************************
+1386           函 数 名  : u8 FindTab(u16 *pTab,u8 Tablong,u16 dat)
+1387           功能描述  : 二分法查表发，得到温度值，表格数据大到小
+1388           输入参数  :   pTab：查表指针地址   Tablong：查表长度   dat：查表的数据
+1389           输出参数  : 返回查表的温度值
+1390           修改历史  :
+1391            1.日    期   : 2019年4月2日
+1392              作    者   : chengjing
+1393              修改内容   : 创建
+1394          *****************************************************************************/
+1395          u8 FindTab(u16 *pTab,u8 Tablong,u16 dat)
+1396          {
+1397   1        u8 st=0,ed=0,m=0;
+1398   1        u8 i=0;
+1399   1        ed=TempSize-1;
+1400   1        if(dat>=pTab[st])
+1401   1          return st;
+1402   1        else if(dat<=pTab[ed])
+1403   1          return ed;
+1404   1        while(st<ed)
+1405   1        {
+1406   2          m=(st+ed)/2;
+1407   2          if(dat==pTab[m])
+1408   2            break;
+1409   2          if((dat<pTab[m])&&(dat>pTab[m+1]))
+1410   2            break;
+1411   2          if(dat>pTab[m])
+1412   2            ed=m;
+1413   2          else
+1414   2            st=m;
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 24  
+
+1415   2          if(i++>Tablong)
+1416   2            break;    
+1417   2        }
+1418   1        if(st>ed)
+1419   1          return 0;
+1420   1        return m;
+1421   1      }
+1422          
+1423          
+1424          /*****************************************************************************
+1425           函 数 名  : void Get_Temperature(void)
+1426           功能描述  : 得到温度值，经过得到AD值计算得到温度值，采用通过10次采样求平均值来计算温度
+1427           输入参数  :  tim: 时间 n:采样次数
+1428           输出参数  : 
+1429           修改历史  :
+1430            1.日    期   : 2019年4月2日
+1431              作    者   : chengjing
+1432              修改内容   : 创建
+1433          *****************************************************************************/
+1434          void Get_Temperature(u16 tim,u16 n)
+1435          {
+1436   1        static u16 i=0,temp_t=0;
+1437   1        float temp1=0,temp2=0;
+1438   1        if(AD_Count>tim)
+1439   1        {
+1440   2          Get_ADC_Value();
+1441   2          i++;
+1442   2          if(i>=n)
+1443   2          {     
+1444   3            Get_R_Value(n);
+1445   3            R1_Temperature=FindTab(TabNTC_10k,TempSize,R1_value);
+1446   3            R2_Temperature=FindTab(TabNTC2_10k,TempSize,R2_value);
+1447   3            temp1=(TabNTC_10k[R1_Temperature]-R1_value)*1.0/(TabNTC_10k[R1_Temperature]-TabNTC_10k[R1_Temperature+1
+             -]);
+1448   3            temp2=(TabNTC2_10k[R2_Temperature]-R2_value)*1.0/(TabNTC2_10k[R2_Temperature]-TabNTC2_10k[R2_Temperatur
+             -e+1]);
+1449   3            R1_Temperature=R1_Temperature*10+temp1*10;
+1450   3            R2_Temperature=R2_Temperature*10+temp2*10;
+1451   3            write_dgus_vp(0x1002,(u8*)&R1_Temperature,1);
+1452   3            write_dgus_vp(0x1004,(u8*)&R2_Temperature,1);
+1453   3            Temperature_Real=(R1_Temperature*Temp_Coef[0]-R2_Temperature*Temp_Coef[1]+Temp_Coef[2]);
+1454   3            Temperature_Real=(Temperature_Real/(10*Temp_Pre))*10;
+1455   3            if(abs(Temperature_Real-Temperatrue_Real_Old)==Temp_Pre)
+1456   3            {
+1457   4              temp_t++;
+1458   4              if(temp_t<5)
+1459   4              {
+1460   5                Temperature_Real=Temperatrue_Real_Old;
+1461   5              }
+1462   4              else
+1463   4              {
+1464   5                temp_t=0;
+1465   5                Temperatrue_Real_Old=Temperature_Real;
+1466   5              }
+1467   4            }
+1468   3            else if(abs(Temperature_Real-Temperatrue_Real_Old)>=Temp_Pre*2)
+1469   3            {
+1470   4              Temperatrue_Real_Old=Temperature_Real;
+1471   4              temp_t=0;
+1472   4            }
+1473   3      // //       Temperature_Real=Temperature_Real/10;
+1474   3            write_dgus_vp(TEMP_CURRENT,(u8*)&Temperature_Real,1);
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 25  
+
+1475   3            memset(adc_val,0,sizeof(adc_val));
+1476   3            i=0;
+1477   3          }
+1478   2          AD_Count=0;
+1479   2        }
+1480   1      }
+1481          
+1482          
+1483          
+1484          
+1485          
+1486          
+1487          
+1488          
+1489          
+1490          
+1491          /*****************************************************************************
+1492           函 数 名  : u8 Alarm_Handler(void)
+1493           功能描述  : 闹钟处理函数
+1494           输入参数  :   
+1495           输出参数  : 0：闹钟处理函数成功
+1496           修改历史  :
+1497            1.日    期   : 2019年4月2日
+1498              作    者   : chengjing
+1499              修改内容   : 创建
+1500          *****************************************************************************/
+1501          u8 Alarm_Handler(void)
+1502          {
+1503   1        read_dgus_vp(ALARM_KEY,(u8*)Alarm_Key,2);
+1504   1        if((Alarm_Key[0]>0)||(Alarm_Key[1]>0))
+1505   1        {
+1506   2          read_dgus_vp(ALARM_VAL,(u8*)&alarm_val,4);
+1507   2          Real_Hour_Min=(u16)real_time.hour*256+real_time.min;
+1508   2          if(Alarm_Key[0]==1)
+1509   2          {
+1510   3            if(Real_Hour_Min==alarm_val.alarm1_time)
+1511   3            {
+1512   4              //开启闹钟，gui闹钟还没有调通，后续增加
+1513   4            }
+1514   3            else
+1515   3            {
+1516   4              //flag清零
+1517   4            }
+1518   3          }
+1519   2          else if(Alarm_Key[1]==1)
+1520   2          {
+1521   3            if(Real_Hour_Min==alarm_val.alarm2_time)
+1522   3            {
+1523   4              //开启闹钟，gui闹钟还没有调通，后续增加
+1524   4            }
+1525   3            else
+1526   3            {
+1527   4              //flag清零
+1528   4            }
+1529   3          }
+1530   2          Alarm_Status=1;
+1531   2          write_dgus_vp(ALARM_STATUS,(u8*)&Alarm_Status,1);
+1532   2        }
+1533   1        else
+1534   1        {
+1535   2          Alarm_Status=0;
+1536   2          write_dgus_vp(ALARM_STATUS,(u8*)&Alarm_Status,1);
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 26  
+
+1537   2        }
+1538   1        return 0;
+1539   1      }
+1540          
+1541          
+1542          
+1543          
+1544          
+1545          
+1546          
+1547          
+1548          
+1549          
+1550          
+1551          
+1552          
+1553          /*****************************************************************************
+1554           函 数 名  : void T0_ISR_PC(void)    interrupt 1
+1555           功能描述  : 定时器0处理函数，毫秒增加
+1556           输入参数  :   
+1557           输出参数  : 
+1558           修改历史  :
+1559            1.日    期   : 2019年4月2日
+1560              作    者   : chengjing
+1561              修改内容   : 创建
+1562          *****************************************************************************/
+1563          void T0_ISR_PC(void)    interrupt 1
+1564          {
+1565   1      //  u16   sxi = 1;
+1566   1          EA=0;
+1567   1          TH0=T1MS>>8;
+1568   1          TL0=T1MS;
+1569   1      //      TP_drawin();
+1570   1        Wait_Count++;
+1571   1        if(Key_Count<65500)
+1572   1        {
+1573   2          Key_Count++;
+1574   2        }   
+1575   1        if(M4G6_ct)
+1576   1        {
+1577   2          M4G6_ct--;
+1578   2        }
+1579   1        screen_count++; 
+1580   1        Sleep_Count++;  
+1581   1        Parm_Change_Count++;
+1582   1        AD_Count++;
+1583   1          EA=1;
+1584   1      }
+1585          
+1586          /*****************************************************************************
+1587           函 数 名  : void Time_Calibration(void)
+1588           功能描述  : 时间校准，读取的为RTC时间设置的值
+1589           输入参数  :   
+1590           输出参数  : 
+1591           修改历史  :
+1592            1.日    期   : 2019年5月2日
+1593              作    者   : chengjing
+1594              修改内容   : 创建
+1595          *****************************************************************************/
+1596          void Time_Calibration(void)
+1597          {
+1598   1        read_dgus_vp(RTC_Set,(u8*)time_calibra,4);
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 27  
+
+1599   1        if((time_calibra[0]==0x5A)&&(time_calibra[1]==0xA5))
+1600   1        {
+1601   2          real_time.year=time_calibra[2];
+1602   2          real_time.month=time_calibra[3];
+1603   2          real_time.day=time_calibra[4];
+1604   2          real_time.hour=time_calibra[5];
+1605   2          real_time.min=time_calibra[6];
+1606   2          real_time.sec=time_calibra[7];
+1607   2          write_dgus_vp(RTC,(u8*)&real_time.year,4);
+1608   2          time_calibra[0]=0;
+1609   2          time_calibra[1]=0;
+1610   2          write_dgus_vp(RTC_Set,(u8*)time_calibra,4);
+1611   2        }
+1612   1      }
+1613          
+1614          
+1615          
+1616          
+1617          
+1618          u8 Is_Leap_Year(u16 year)
+1619          {   
+1620   1        if(year%4==0) //必须能被4整除
+1621   1        {
+1622   2          if(year%100==0) 
+1623   2          {
+1624   3            if(year%400==0)return 1;//如果以00结尾,还要能被400整除     
+1625   3            else return 0;   
+1626   3          }else return 1;   
+1627   2        }else return 0; 
+1628   1      }
+1629          
+1630          
+1631          
+1632          u8 RTC_Get_Week(u8 year,u8 month,u8 day)
+1633          { 
+1634   1        u16 temp;
+1635   1        year_real=(u16)year+2000;
+1636   1        yearH=year_real/100;  
+1637   1        yearL=year_real%100; 
+1638   1        // 如果为21世纪,年份数加100  
+1639   1        if (yearH>19)yearL+=100;
+1640   1        // 所过闰年数只算1900年之后的  
+1641   1        temp=yearL+yearL/4;
+1642   1        temp=temp%7; 
+1643   1        temp=temp+day+table_week[month-1];
+1644   1        if (yearL%4==0&&month<3)temp--;
+1645   1        temp%=7;
+1646   1        if(temp==0)
+1647   1          return 6;
+1648   1        else
+1649   1          return temp-1;
+1650   1      }
+1651          
+1652          
+1653          
+1654          
+1655          /*****************************************************************************
+1656           函 数 名  : void Time_Update(void)
+1657           功能描述  : 更新时间
+1658           输入参数  :   
+1659           输出参数  : 
+1660           修改历史  :
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 28  
+
+1661            1.日    期   : 2019年4月2日
+1662              作    者   : chengjing
+1663              修改内容   : 创建
+1664          *****************************************************************************/
+1665          // void Time_Update(void)
+1666          // {    
+1667          //  if(Second_Updata_Flag==1)
+1668          //  {
+1669          //    real_time.week=RTC_Get_Week(real_time.year,real_time.month,real_time.day);  
+1670          //    write_dgus_vp(RTC,(u8*)&real_time.year,4);  
+1671          //    time_display[0]=real_time.year+2000;
+1672          //    time_display[1]=real_time.month+100;;
+1673          //    time_display[2]=real_time.day+100;
+1674          //    time_display[3]=real_time.week;   //0-6表示星期一到星期日
+1675          //    time_display[4]=real_time.hour+100;
+1676          //    time_display[5]=real_time.min+100;
+1677          //    time_display[6]=real_time.sec+100;
+1678          //    write_dgus_vp(TIME_DISPLAY,(u8*)time_display,7);    
+1679          //    Second_Updata_Flag=0;
+1680          //    Time_Calibration(); 
+1681          //    read_dgus_vp(RTC,(u8*)&real_time.year,4);
+1682          //  }
+1683          // }
+1684          
+1685          
+1686          
+1687          /*****************************************************************************
+1688           函 数 名  : void T1_ISR_PC(void)    interrupt 3
+1689           功能描述  : 定时器1处理函数，提供RTC计时和处理
+1690           输入参数  :   
+1691           输出参数  : 
+1692           修改历史  :
+1693            1.日    期   : 2019年4月2日
+1694              作    者   : chengjing
+1695              修改内容   : 创建
+1696          *****************************************************************************/
+1697          void T1_ISR_PC(void)    interrupt 3
+1698          {
+1699   1          EA=0;
+1700   1          TH1=T1MS>>8;
+1701   1          TL1=T1MS;
+1702   1        ////////////////////////////
+1703   1        ////////////////////////////////
+1704   1        SysTick_RTC++;
+1705   1        if(SysTick_RTC==1000)
+1706   1        {   
+1707   2          real_time.sec++;
+1708   2          if(real_time.sec>59)
+1709   2          {
+1710   3            real_time.sec=0;
+1711   3            real_time.min++;
+1712   3            if(real_time.min>59)
+1713   3            {
+1714   4              real_time.min=0;
+1715   4              real_time.hour++;
+1716   4              if(real_time.hour>23)
+1717   4              {
+1718   5                real_time.hour=0;
+1719   5                real_time.day++;
+1720   5                if((real_time.month==2)&&(Is_Leap_Year((u16)real_time.year+2000)))
+1721   5                {
+1722   6                  if(real_time.day>(mon_table[real_time.month-1]+1))
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 29  
+
+1723   6                  {
+1724   7                    real_time.day=1;
+1725   7                    real_time.month++;
+1726   7                  }
+1727   6                }
+1728   5                else
+1729   5                {
+1730   6                  if(real_time.day>mon_table[real_time.month-1])
+1731   6                  {
+1732   7                    real_time.day=1;
+1733   7                    real_time.month++;
+1734   7                  }
+1735   6                }
+1736   5                if(real_time.month>12)
+1737   5                {
+1738   6                  real_time.month=1;
+1739   6                  real_time.year++;
+1740   6                }         
+1741   5              }       
+1742   4            }     
+1743   3          }
+1744   2          SysTick_RTC=0;
+1745   2          Second_Updata_Flag=1;   
+1746   2        }
+1747   1        
+1748   1          EA=1;
+1749   1      }
+1750          
+1751          
+1752          
+1753          /*****************************************************************************
+1754           函 数 名  : void delay_ms(u16 n)
+1755           功能描述  : 延时函数，使用定时器2硬件延时
+1756           输入参数  :   
+1757           输出参数  : 
+1758           修改历史  :
+1759            1.日    期   : 2019年4月2日
+1760              作    者   : chengjing
+1761              修改内容   : 创建
+1762          *****************************************************************************/
+1763          void delay_ms(u16 n)
+1764          {
+1765   1          SysTick=n;
+1766   1          while(SysTick);   
+1767   1      }
+1768          
+1769          /*****************************************************************************
+1770           函 数 名  : void T2_ISR_PC(void)    interrupt 5
+1771           功能描述  : 定时器2中断处理函数，提供延时函数计数和喂狗
+1772           输入参数  :   
+1773           输出参数  : 
+1774           修改历史  :
+1775            1.日    期   : 2019年4月2日
+1776              作    者   : chengjing
+1777              修改内容   : 创建
+1778          *****************************************************************************/
+1779          void T2_ISR_PC(void)    interrupt 5
+1780          {
+1781   1            EA=0;
+1782   1      
+1783   1          TF2=0;    
+1784   1          SysTick--; 
+C51 COMPILER V9.50a   SYS                                                                  08/27/2019 16:41:22 PAGE 30  
+
+1785   1            if(Uart2RxCt==0)
+1786   1            {
+1787   2              Uart2_TTL_Status = 0;
+1788   2            }
+1789   1            else
+1790   1            {
+1791   2              Uart2RxCt--;
+1792   2              
+1793   2            }
+1794   1            if(Uart3RxCt==0)
+1795   1            {
+1796   2              Uart3_TTL_Status = 0;
+1797   2            }
+1798   1            else
+1799   1            {
+1800   2              Uart3RxCt--;
+1801   2              
+1802   2            }
+1803   1      //    Uart3RxCt--;
+1804   1          Uart4RxCt--;
+1805   1          Uart5RxCt--;
+1806   1          WDT_RST();  
+1807   1          EA=1;
+1808   1            
+1809   1      }
+1810          
+1811          
+1812          
+1813          
+1814          
+1815          
+1816          
+1817          
+1818          
+1819          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   8288    ----
+   CONSTANT SIZE    =    461    ----
+   XDATA SIZE       =    247      74
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     18    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

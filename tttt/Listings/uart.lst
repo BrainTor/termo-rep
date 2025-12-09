@@ -1,0 +1,321 @@
+C51 COMPILER V9.50a   UART                                                                 08/27/2019 16:41:23 PAGE 1   
+
+
+C51 COMPILER V9.50a, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN .\obj\uart.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE uart.c LARGE OBJECTADVANCED BROWSE INCDIR(..\T5L51) DEBUG PRINT(.\Listings\
+                    -uart.lst) TABS(2) OBJECT(.\obj\uart.obj)
+
+line level    source
+
+   1          /******************************************************************************
+   2          
+   3                            版权所有 (C), 2019, 北京迪文科技有限公司
+   4          
+   5           ******************************************************************************
+   6            文 件 名   : uart.c
+   7            版 本 号   : V2.0
+   8            作    者   : chengjing
+   9            生成日期   : 2019年4月1日
+  10            功能描述   : 串口函数
+  11            修改历史   :
+  12            1.日    期   : 
+  13              作    者   : 
+  14              修改内容   : 
+  15          ******************************************************************************/
+  16          
+  17          #include "uart.h"
+  18          
+  19          
+  20          /********************************
+  21          *   串口接受缓存区
+  22          *  缓存区大小可以根据实际进行修改
+  23          *  接收到缓存数据请尽快处理，否者
+  24          *  下一条数据会往尾端增加
+  25          ********************************/
+  26          u8 uart2_busy=0;
+  27          u16 uart2_rx_count=0;
+  28          u8 xdata Uart2_Rx[UART2_MAX_LEN];
+  29          
+  30          u8 uart3_busy=0;
+  31          u16 uart3_rx_count=0;
+  32          u8 xdata Uart3_Rx[UART3_MAX_LEN];
+  33          
+  34          u16 uart5_rx_count=0;
+  35          u8 xdata Uart5_Rx[UART5_MAX_LEN];
+  36          
+  37          u8 Uart2_TTL_Status = 0;
+  38          u8 Uart3_TTL_Status = 0;
+  39          
+  40          void UART2_Init(void)
+  41          {
+  42   1          ADCON=0x80;
+  43   1          SCON0=0x50;
+  44   1          SREL0H=0x03;        //FCLK/64*(1024-SREL1)
+  45   1          SREL0L=0xE4;
+  46   1          ES0=1;
+  47   1          EA=1;
+  48   1      }
+  49          
+  50          void UART2_Sendbyte(u8 dat)
+  51          {       
+  52   1           while(uart2_busy==1);       
+  53   1           uart2_busy=1;
+  54   1           SBUF0 = dat;        
+C51 COMPILER V9.50a   UART                                                                 08/27/2019 16:41:23 PAGE 2   
+
+  55   1      }
+  56          
+  57          
+  58          
+  59          void UART2_SendStr(u8 *pstr,u8 strlen)
+  60          {
+  61   1          if((NULL == pstr)||(0 == strlen))
+  62   1          {
+  63   2              return;
+  64   2          }
+  65   1          while(strlen--)
+  66   1          {
+  67   2              UART2_Sendbyte(*pstr);
+  68   2              pstr++;
+  69   2          }  
+  70   1      }
+  71          
+  72          
+  73          void UART2_ISR_PC(void)    interrupt 4
+  74          {
+  75   1          u8 res=0;
+  76   1          EA=0;
+  77   1          if(RI0==1)
+  78   1          {
+  79   2              res=SBUF0;
+  80   2              Uart2_Rx[uart2_rx_count]=res; 
+  81   2              uart2_rx_count++;
+  82   2              RI0=0;       
+  83   2              Uart2RxCt = 5; 
+  84   2              Uart2_TTL_Status = 12;
+  85   2          }
+  86   1          if(TI0==1)
+  87   1          {
+  88   2              TI0=0;
+  89   2              uart2_busy=0;
+  90   2          }
+  91   1          EA=1;
+  92   1      }
+  93          
+  94          void UART3_Init(void)
+  95          {
+  96   1          SCON1=0xD0;       //8N1
+  97   1      //     SCON1=0xd0;        //偶校验
+  98   1      //     SCON1=0xdc;        //奇校验
+  99   1          SREL1H=0x03;        //FCLK/64*(1024-SREL1)
+ 100   1          SREL1L=0xC8;
+ 101   1          IEN2|=0x01;
+ 102   1          EA=1;
+ 103   1      }
+ 104           /**
+ 105              * @brief UART3发送一个字节   
+ 106              * @param [in] 
+ 107              *      dat:发送的字节
+ 108              * @param [out]
+ 109              *      无
+ 110              * @retval 
+ 111              *      无
+ 112              */
+ 113          void UART3_Sendbyte(u8 dat)
+ 114          {
+ 115   1           while(uart3_busy==1);       
+ 116   1           uart3_busy=1;
+C51 COMPILER V9.50a   UART                                                                 08/27/2019 16:41:23 PAGE 3   
+
+ 117   1           SBUF1 = dat;  
+ 118   1      }
+ 119          
+ 120          //void UART3_Sendbyte(u8 dat)
+ 121          //{
+ 122          //            
+ 123          //     SBUF1 = dat;    
+ 124          //     while((SCON1&0x02)==0); 
+ 125          //     SCON1 &=0xFD; 
+ 126          //             
+ 127          //}
+ 128          
+ 129           /**
+ 130              * @brief UART3发送字符串       
+ 131              * @param [in] 
+ 132              *      pstr:发送的字符串
+ 133              *      strlen：字符串长度
+ 134              * @param [out]
+ 135              *      无
+ 136              * @retval 
+ 137              *      无
+ 138              */
+ 139          void UART3_SendStr(u8 *pstr,u8 strlen)
+ 140          {
+ 141   1          if((NULL == pstr)||(0 == strlen))
+ 142   1          {
+ 143   2              return;
+ 144   2          }
+ 145   1          while(strlen--)
+ 146   1          {
+ 147   2              UART3_Sendbyte(*pstr);
+ 148   2              pstr++;
+ 149   2          }  
+ 150   1      }
+ 151          
+ 152           /**
+ 153              * @brief UART3接受中断函数
+ 154              *       接受数据，保存在Uart3_Rx数组中
+ 155              * @param [in] 
+ 156              *      无
+ 157              * @param [out]
+ 158              *      无
+ 159              * @retval 
+ 160              *      无
+ 161              */
+ 162          void UART3_ISR_PC(void)    interrupt 16
+ 163          {
+ 164   1          u8 res=0;
+ 165   1          EA=0;
+ 166   1          if(SCON1&0x01)
+ 167   1          {
+ 168   2              res=SBUF1;
+ 169   2              Uart3_Rx[uart3_rx_count]=res; 
+ 170   2              uart3_rx_count++;
+ 171   2              SCON1 &= 0xFE;       
+ 172   2              SCON1 &= 0xFE;       
+ 173   2              Uart3RxCt = 5; 
+ 174   2              Uart3_TTL_Status = 12;
+ 175   2          }
+ 176   1          if(SCON1&0x02)
+ 177   1          {
+ 178   2              SCON1&=0xFD;
+C51 COMPILER V9.50a   UART                                                                 08/27/2019 16:41:23 PAGE 4   
+
+ 179   2              SCON1&=0xFD;
+ 180   2              uart3_busy=0;
+ 181   2          }    
+ 182   1          EA=1;
+ 183   1      }
+ 184          
+ 185          
+ 186          /*****************************************************************************
+ 187           函 数 名  : void UART5_Init(void)
+ 188           功能描述  : 串口4初始化
+ 189           输入参数  :  
+ 190           输出参数  : 
+ 191           修改历史  :
+ 192            1.日    期   : 2019年4月30日
+ 193              作    者   : chengjing
+ 194              修改内容   : 创建
+ 195          *****************************************************************************/
+ 196          void UART5_Init(void)
+ 197          {
+ 198   1          SCON3T=0x80;
+ 199   1          SCON3R=0x80;
+ 200   1          BODE3_DIV_H=0x00;     //FCLK/(8*DIV）
+ 201   1          BODE3_DIV_L=0xE0;
+ 202   1          //ES3T=1;
+ 203   1          ES3R=1;
+ 204   1        RS485_TX_EN=0;
+ 205   1          EA=1;
+ 206   1      }
+ 207          
+ 208          
+ 209          
+ 210          
+ 211          /*****************************************************************************
+ 212           函 数 名  : void UART5_Sendbyte(u8 dat)
+ 213           功能描述  : 串口发送一个字节
+ 214           输入参数  :  dat:发送字节值
+ 215           输出参数  : 
+ 216           修改历史  :
+ 217            1.日    期   : 2019年4月30日
+ 218              作    者   : chengjing
+ 219              修改内容   : 创建
+ 220          *****************************************************************************/
+ 221          void UART5_Sendbyte(u8 dat)
+ 222          {
+ 223   1           SBUF3_TX = dat;    
+ 224   1           while((SCON3T&0x01)==0); 
+ 225   1           SCON3T &=0xFE;    
+ 226   1      }
+ 227          
+ 228          
+ 229          /*****************************************************************************
+ 230           函 数 名  : void UART5_SendStr(u8 *pstr,u8 strlen)
+ 231           功能描述  : 串口发送一个字节
+ 232           输入参数  :  pstr:发送字符串首地址
+ 233                strlen：发送字符串长度
+ 234           输出参数  : 
+ 235           修改历史  :
+ 236            1.日    期   : 2019年4月30日
+ 237              作    者   : chengjing
+ 238              修改内容   : 创建
+ 239          *****************************************************************************/
+ 240          void UART5_SendStr(u8 *pstr,u8 strlen)
+C51 COMPILER V9.50a   UART                                                                 08/27/2019 16:41:23 PAGE 5   
+
+ 241          {
+ 242   1          if((NULL == pstr)||(0 == strlen))
+ 243   1          {
+ 244   2              return;
+ 245   2          }
+ 246   1        RS485_TX_EN=1;
+ 247   1          while(strlen--)
+ 248   1          {
+ 249   2              UART5_Sendbyte(*pstr);
+ 250   2              pstr++;
+ 251   2          }
+ 252   1        RS485_TX_EN=0;
+ 253   1      }
+ 254          
+ 255          
+ 256          void UART5_TX_ISR_PC(void)    interrupt 12
+ 257          {
+ 258   1      }
+ 259          
+ 260          /*****************************************************************************
+ 261           函 数 名  : void UART5_RX_ISR_PC(void)    interrupt 13
+ 262           功能描述  : 串口中断接收函数
+ 263           输入参数  :  
+ 264           输出参数  : 
+ 265           修改历史  :
+ 266            1.日    期   : 2019年4月30日
+ 267              作    者   : chengjing
+ 268              修改内容   : 创建
+ 269          *****************************************************************************/
+ 270          void UART5_RX_ISR_PC(void)    interrupt 13
+ 271          {
+ 272   1          u8 res=0;
+ 273   1          EA=0;
+ 274   1          if((SCON3R&0x01)==0x01)
+ 275   1          {
+ 276   2              res=SBUF3_RX;
+ 277   2              Uart5_Rx[uart5_rx_count]=res; 
+ 278   2              uart5_rx_count++;
+ 279   2              SCON3R&=0xFE;       
+ 280   2          }
+ 281   1          EA=1;
+ 282   1      }
+ 283          
+ 284          
+ 285          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    616    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    394       9
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

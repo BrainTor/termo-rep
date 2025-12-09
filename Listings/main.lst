@@ -1,0 +1,1682 @@
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 1   
+
+
+C51 COMPILER V9.60.7.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE main.c LARGE OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listing
+                    -s\main.lst) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          #include "T5LOS8051.h"
+   2          
+   3          /* ---------------------------------------------------------------
+   4           * Типы
+   5           * ------------------------------------------------------------- */
+   6          
+   7          typedef unsigned char  u8;
+   8          typedef unsigned short u16;
+   9          typedef signed   short s16;
+  10          typedef unsigned long  u32;
+  11          typedef signed   long  s32;
+  12          
+  13          /* ---------------------------------------------------------------
+  14           * Адреса VP (регистры из ТЗ) и системные адреса DGUS
+  15           * ------------------------------------------------------------- */
+  16          
+  17          /* Дата/время */
+  18          #define VP_YEAR        0x2010
+  19          #define VP_MONTH       0x2011
+  20          #define VP_DAY         0x2012
+  21          #define VP_WEEKDAY     0x2013
+  22          #define VP_HOUR        0x2014
+  23          #define VP_MIN         0x2015
+  24          #define VP_SEC         0x2016
+  25          
+  26          /* Системный RTC DGUS */
+  27          #define OS_RTC         0x0010
+  28          
+  29          /* График 1 */
+  30          #define VP_G1_STATUS   0x2020
+  31          #define VP_G1_DAYS     0x2021
+  32          #define VP_G1_SPEED    0x2022
+  33          #define VP_G1_TEMP     0x2023
+  34          #define VP_G1_SHOUR    0x2024
+  35          #define VP_G1_SMIN     0x2025
+  36          #define VP_G1_EHOUR    0x2026
+  37          #define VP_G1_EMIN     0x2027
+  38          
+  39          /* График 2 */
+  40          #define VP_G2_STATUS   0x2030
+  41          #define VP_G2_DAYS     0x2031
+  42          #define VP_G2_SPEED    0x2032
+  43          #define VP_G2_TEMP     0x2033
+  44          #define VP_G2_SHOUR    0x2034
+  45          #define VP_G2_SMIN     0x2035
+  46          #define VP_G2_EHOUR    0x2036
+  47          #define VP_G2_EMIN     0x2037
+  48          
+  49          /* График 3 */
+  50          #define VP_G3_STATUS   0x2040
+  51          #define VP_G3_DAYS     0x2041
+  52          #define VP_G3_SPEED    0x2042
+  53          #define VP_G3_TEMP     0x2043
+  54          #define VP_G3_SHOUR    0x2044
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 2   
+
+  55          #define VP_G3_SMIN     0x2045
+  56          #define VP_G3_EHOUR    0x2046
+  57          #define VP_G3_EMIN     0x2047
+  58          
+  59          /* График 4 */
+  60          #define VP_G4_STATUS   0x2050
+  61          #define VP_G4_DAYS     0x2051
+  62          #define VP_G4_SPEED    0x2052
+  63          #define VP_G4_TEMP     0x2053
+  64          #define VP_G4_SHOUR    0x2054
+  65          #define VP_G4_SMIN     0x2055
+  66          #define VP_G4_EHOUR    0x2056
+  67          #define VP_G4_EMIN     0x2057
+  68          
+  69          /* Основные регистры работы */
+  70          #define VP_ONOFF       0x2060   /* 1 – выкл, 2 – вкл */
+  71          #define VP_SPEED       0x2061   /* 1..4 */
+  72          #define VP_MODE        0x2062   /* 1 – охл, 2 – нагрев */
+  73          #define VP_T_REAL_10X  0x2063   /* *10 */
+  74          #define VP_T_REAL_INT  0x2064
+  75          #define VP_T_SET_10X   0x2065   /* *10 */
+  76          #define VP_T_SET_INT   0x2066
+  77          #define VP_GRAPH_EN    0x2067
+  78          
+  79          /* Настройка Modbus */
+  80          #define VP_MB_ADDR     0x2070   /* 1..247 */
+  81          #define VP_MB_SPEED    0x2071   /* 1..7 */
+  82          #define VP_MB_PROTO    0x2072   /* 1..6 */
+  83          
+  84          /* Системный АЦП */
+  85          #define OS_AD_VALUE    0x0032
+  86          
+  87          /* Калибровка температуры (как в tttt) */
+  88          #define VP_T_COEF       0x2550   /* 3 слова: K1, K2, C */
+  89          #define VP_T_PRECISION  0x2554   /* 0 – 0.5°C, 1 – 1.0°C */
+  90          
+  91          /* ---------------------------------------------------------------
+  92           * Аппаратные линии
+  93           * ------------------------------------------------------------- */
+  94          
+  95          sbit RELAY_VALVE = P1^3;
+  96          sbit RELAY_LOW   = P1^1;
+  97          sbit RELAY_HIGH  = P1^2;
+  98          sbit RELAY_MID   = P1^4;
+  99          sbit RS485_TX_EN = P0^1;   /* Управление направлением RS485 */
+ 100          
+ 101          #define RELAY_VALVE_BIT  (1u << 3)
+ 102          #define RELAY_LOW_BIT    (1u << 1)
+ 103          #define RELAY_HIGH_BIT   (1u << 2)
+ 104          #define RELAY_MID_BIT    (1u << 4)
+ 105          
+ 106          /* ---------------------------------------------------------------
+ 107           * Константы
+ 108           * ------------------------------------------------------------- */
+ 109          
+ 110          #define TEMP_HYST_10X 10
+ 111          #define NTC_TABLE_SIZE 100
+ 112          #define FOSC     206438400UL
+ 113          #define T1MS     (65536UL - FOSC/12UL/1000UL)
+ 114          
+ 115          /* Modbus */
+ 116          #define MODBUS_RX_BUF_SIZE 64
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 3   
+
+ 117          #define MODBUS_TX_BUF_SIZE 64
+ 118          #define MODBUS_TIMEOUT_MS  10   /* таймаут между байтами (3.5 символа при 115
+             -200) */
+ 119          
+ 120          /* Modbus функции */
+ 121          #define MB_FUNC_READ_REGS      0x03
+ 122          #define MB_FUNC_WRITE_REG      0x06
+ 123          #define MB_FUNC_WRITE_REGS     0x10
+ 124          
+ 125          /* Modbus ошибки */
+ 126          #define MB_ERR_ILLEGAL_FUNC    0x01
+ 127          #define MB_ERR_ILLEGAL_ADDR    0x02
+ 128          #define MB_ERR_ILLEGAL_VALUE   0x03
+ 129          
+ 130          /* ---------------------------------------------------------------
+ 131           * Таблицы NTC
+ 132           * ------------------------------------------------------------- */
+ 133          
+ 134          static const u16 code NTC1_TABLE[NTC_TABLE_SIZE] =
+ 135          {
+ 136              32040,30490,29022,27633,26317,25071,23889,22769,21707,20700,
+ 137              19788,18838,17977,17160,16383,15646,14945,14280,13647,13045,
+ 138              12472,11928,11409,10916,10447,10000, 9574, 9168, 8781, 8413,
+ 139               8062, 7727, 7407, 7103, 6812, 6534, 6270, 6017, 5775, 5545,
+ 140               5324, 5114, 4913, 4720, 4536, 4360, 4192, 4031, 3877, 3730,
+ 141               3572, 3454, 3324, 3201, 3082, 2968, 2859, 2755, 2654, 2558,
+ 142               2466, 2378, 2293, 2212, 2134, 2059, 1987, 1918, 1851, 1788,
+ 143               1726, 1668, 1611, 1557, 1504, 1454, 1406, 1359, 1314, 1271,
+ 144               1230, 1190, 1151, 1114, 1079, 1045, 1011,  980,  949,  919,
+ 145                891,  863,  837,  811,  786,  763,  740,  718,  696,  675
+ 146          };
+ 147          
+ 148          static const u16 code NTC2_TABLE[NTC_TABLE_SIZE] =
+ 149          {
+ 150              32800,31141,29572,28090,26690,25366,24116,22935,21820,20767,
+ 151              19773,18835,17949,17113,16323,15578,14874,14208,13579,12983,
+ 152              12419,11885,11378,10896,10437,10000, 9513, 9064, 8649, 8263,
+ 153               7904, 7570, 7256, 6960, 6682, 6420, 6170, 5932, 5707, 5491,
+ 154               5284, 5085, 4895, 4712, 4536, 4367, 4204, 4047, 3896, 3750,
+ 155               3610, 3475, 3346, 3221, 3101, 2987, 2876, 2771, 2670, 2573,
+ 156               2480, 2391, 2307, 2226, 2148, 2074, 2004, 1936, 1871, 1809,
+ 157               1750, 1693, 1586, 1535, 1486, 1439, 1393, 1348, 1305, 1262,
+ 158               1220, 1178, 1137, 1097, 1056, 1023,  991,  960,  931,  903,
+ 159                876,  850,  825,  801,  777,  755,  733,  713,  692,  673
+ 160          };
+ 161          
+ 162          static const u8 code table_week[12] = {0,3,3,6,1,4,6,2,5,0,3,5};
+ 163          static const u8 code mon_table[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+ 164          
+ 165          /* Таблица CRC16 Modbus (High byte) */
+ 166          static const u8 code CRC_HI[] = {
+ 167              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
+ 168              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 169              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 170              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
+ 171              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 172              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
+ 173              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
+ 174              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 175              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 176              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
+ 177              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 4   
+
+ 178              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 179              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,
+ 180              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 181              0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40,0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,
+ 182              0x00,0xC1,0x81,0x40,0x01,0xC0,0x80,0x41,0x01,0xC0,0x80,0x41,0x00,0xC1,0x81,0x40
+ 183          };
+ 184          
+ 185          /* Таблица CRC16 Modbus (Low byte) */
+ 186          static const u8 code CRC_LO[] = {
+ 187              0x00,0xC0,0xC1,0x01,0xC3,0x03,0x02,0xC2,0xC6,0x06,0x07,0xC7,0x05,0xC5,0xC4,0x04,
+ 188              0xCC,0x0C,0x0D,0xCD,0x0F,0xCF,0xCE,0x0E,0x0A,0xCA,0xCB,0x0B,0xC9,0x09,0x08,0xC8,
+ 189              0xD8,0x18,0x19,0xD9,0x1B,0xDB,0xDA,0x1A,0x1E,0xDE,0xDF,0x1F,0xDD,0x1D,0x1C,0xDC,
+ 190              0x14,0xD4,0xD5,0x15,0xD7,0x17,0x16,0xD6,0xD2,0x12,0x13,0xD3,0x11,0xD1,0xD0,0x10,
+ 191              0xF0,0x30,0x31,0xF1,0x33,0xF3,0xF2,0x32,0x36,0xF6,0xF7,0x37,0xF5,0x35,0x34,0xF4,
+ 192              0x3C,0xFC,0xFD,0x3D,0xFF,0x3F,0x3E,0xFE,0xFA,0x3A,0x3B,0xFB,0x39,0xF9,0xF8,0x38,
+ 193              0x28,0xE8,0xE9,0x29,0xEB,0x2B,0x2A,0xEA,0xEE,0x2E,0x2F,0xEF,0x2D,0xED,0xEC,0x2C,
+ 194              0xE4,0x24,0x25,0xE5,0x27,0xE7,0xE6,0x26,0x22,0xE2,0xE3,0x23,0xE1,0x21,0x20,0xE0,
+ 195              0xA0,0x60,0x61,0xA1,0x63,0xA3,0xA2,0x62,0x66,0xA6,0xA7,0x67,0xA5,0x65,0x64,0xA4,
+ 196              0x6C,0xAC,0xAD,0x6D,0xAF,0x6F,0x6E,0xAE,0xAA,0x6A,0x6B,0xAB,0x69,0xA9,0xA8,0x68,
+ 197              0x78,0xB8,0xB9,0x79,0xBB,0x7B,0x7A,0xBA,0xBE,0x7E,0x7F,0xBF,0x7D,0xBD,0xBC,0x7C,
+ 198              0xB4,0x74,0x75,0xB5,0x77,0xB7,0xB6,0x76,0x72,0xB2,0xB3,0x73,0xB1,0x71,0x70,0xB0,
+ 199              0x50,0x90,0x91,0x51,0x93,0x53,0x52,0x92,0x96,0x56,0x57,0x97,0x55,0x95,0x94,0x54,
+ 200              0x9C,0x5C,0x5D,0x9D,0x5F,0x9F,0x9E,0x5E,0x5A,0x9A,0x9B,0x5B,0x99,0x59,0x58,0x98,
+ 201              0x88,0x48,0x49,0x89,0x4B,0x8B,0x8A,0x4A,0x4E,0x8E,0x8F,0x4F,0x8D,0x4D,0x4C,0x8C,
+ 202              0x44,0x84,0x85,0x45,0x87,0x47,0x46,0x86,0x82,0x42,0x43,0x83,0x41,0x81,0x80,0x40
+ 203          };
+ 204          
+ 205          /* ---------------------------------------------------------------
+ 206           * Структуры
+ 207           * ------------------------------------------------------------- */
+ 208          
+ 209          typedef struct
+ 210          {
+ 211              u8  year;
+ 212              u8  month;
+ 213              u8  day;
+ 214              u8  weekday;
+ 215              u8  hour;
+ 216              u8  min;
+ 217              u8  sec;
+ 218          } RtcTime;
+ 219          
+ 220          typedef struct
+ 221          {
+ 222              u8  active;
+ 223              u8  prev_speed;
+ 224              u16 prev_t_set;
+ 225          } GraphRuntime;
+ 226          
+ 227          typedef struct
+ 228          {
+ 229              u8  status;
+ 230              u8  days;
+ 231              u8  speed;
+ 232              u8  temp_int;
+ 233              u8  shour;
+ 234              u8  smin;
+ 235              u8  ehour;
+ 236              u8  emin;
+ 237          } GraphConfig;
+ 238          
+ 239          /* ---------------------------------------------------------------
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 5   
+
+ 240           * Глобальные переменные
+ 241           * ------------------------------------------------------------- */
+ 242          
+ 243          static RtcTime      g_rtc = {25, 1, 1, 0, 0, 0, 0}; /* год=25 (2025), месяц=1, день=1 */
+ 244          static u16   data   SysTick       = 0;
+ 245          static u16   data   SysTick_RTC   = 0;
+ 246          static bit          g_rtc_1s_flag = 0;
+ 247          
+ 248          static u8           g_onoff   = 2;
+ 249          static u8           g_speed   = 1;
+ 250          static u8           g_mode    = 2;
+ 251          static u16          g_t_set_10x  = 220;
+ 252          static u16          g_t_real_10x = 220;
+ 253          static bit          g_valve_open = 1;
+ 254          static u8           g_graph_en   = 1;
+ 255          
+ 256          static GraphConfig  g_graph_cfg[4];
+ 257          static GraphRuntime g_graph_rt[4];
+ 258          
+ 259          
+ 260          /* Modbus */
+ 261          static u8           g_mb_addr = 247;    /* Адрес устройства */
+ 262          static u8           g_mb_speed_idx = 7; /* Индекс скорости (7=115200) */
+ 263          static u8           g_mb_proto = 1;     /* Протокол (1=8N1) */
+ 264          
+ 265          static u8  xdata    g_mb_rx_buf[MODBUS_RX_BUF_SIZE];
+ 266          static u8           g_mb_rx_cnt = 0;
+ 267          static u8  xdata    g_mb_tx_buf[MODBUS_TX_BUF_SIZE];
+ 268          static u8           g_mb_rx_timeout = 0;
+ 269          static bit          g_mb_frame_ready = 0;
+ 270          
+ 271          /* ---------------------------------------------------------------
+ 272           * Инициализация системы
+ 273           * ------------------------------------------------------------- */
+ 274          
+ 275          static void init_system(void)
+ 276          {
+ 277   1          EA = 0;
+ 278   1      
+ 279   1          PAGESEL   = 0x01;
+ 280   1          D_PAGESEL = 0x02;
+ 281   1          MUX_SEL   = 0x60;
+ 282   1          RAMMODE   = 0x00;
+ 283   1          PORTDRV   = 0x01;
+ 284   1      
+ 285   1          IEN0 = 0x00;
+ 286   1          IEN1 = 0x00;
+ 287   1          IEN2 = 0x00;
+ 288   1      
+ 289   1          /* Timer0: для RTC (1ms) */
+ 290   1          TMOD = 0x11;
+ 291   1          TH0 = (u8)(T1MS >> 8);
+ 292   1          TL0 = (u8)(T1MS & 0xFF);
+ 293   1          ET0 = 1;
+ 294   1          TR0 = 1;
+ 295   1      
+ 296   1          /* Timer2: для delay_ms */
+ 297   1          T2CON  = 0x70;
+ 298   1          TH2    = 0x00;
+ 299   1          TL2    = 0x00;
+ 300   1          TRL2H  = 0xBC;
+ 301   1          TRL2L  = 0xCD;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 6   
+
+ 302   1          IEN0  |= 0x20;
+ 303   1          TR2    = 1;
+ 304   1      
+ 305   1          EA = 1;
+ 306   1      }
+ 307          
+ 308          /* Настройка UART5 для Modbus RTU */
+ 309          static void uart5_init(u8 speed_idx, u8 proto)
+ 310          {
+ 311   1          u16 div_val;
+ 312   1      
+ 313   1          (void)proto;  /* В T5L аппаратно только 8N1 */
+*** WARNING C275 IN LINE 313 OF main.c: expression with possibly no effect
+ 314   1      
+ 315   1          /* Скорости: 1=2400, 2=4800, 3=9600, 4=19200, 5=38400, 6=57600, 7=115200 */
+ 316   1          switch (speed_idx)
+ 317   1          {
+ 318   2              case 1: div_val = (u16)(FOSC / 8UL / 2400UL);   break;
+ 319   2              case 2: div_val = (u16)(FOSC / 8UL / 4800UL);   break;
+ 320   2              case 3: div_val = (u16)(FOSC / 8UL / 9600UL);   break;
+ 321   2              case 4: div_val = (u16)(FOSC / 8UL / 19200UL);  break;
+ 322   2              case 5: div_val = (u16)(FOSC / 8UL / 38400UL);  break;
+ 323   2              case 6: div_val = (u16)(FOSC / 8UL / 57600UL);  break;
+ 324   2              case 7: div_val = (u16)(FOSC / 8UL / 115200UL); break;
+ 325   2              default: div_val = (u16)(FOSC / 8UL / 115200UL); break; /* 115200 по умолчанию */
+ 326   2          }
+ 327   1      
+ 328   1          SCON3T = 0x80;      /* TX enable, 8 bit */
+ 329   1          SCON3R = 0x80;      /* RX enable, 8 bit */
+ 330   1      
+ 331   1          BODE3_DIV_H = (u8)(div_val >> 8);
+ 332   1          BODE3_DIV_L = (u8)(div_val & 0xFF);
+ 333   1      
+ 334   1          /* TX-вывод UART5 (P0.1) в push-pull */
+ 335   1          P0MDOUT |= 0x02;
+ 336   1      
+ 337   1          /* RS-485: по умолчанию режим приёма */
+ 338   1          RS485_TX_EN = 0;
+ 339   1      
+ 340   1          /* Включаем прерывание приёма UART5: ES3R в IEN1 бит 5 */
+ 341   1          ES3R = 1;
+ 342   1      
+ 343   1          EA = 1;
+ 344   1      }
+ 345          
+ 346          static void init_relays(void)
+ 347          {
+ 348   1          P1MDOUT |= (RELAY_VALVE_BIT | RELAY_LOW_BIT | RELAY_HIGH_BIT | RELAY_MID_BIT);
+ 349   1          RELAY_VALVE = 1;
+ 350   1          RELAY_LOW   = 0;
+ 351   1          RELAY_MID   = 0;
+ 352   1          RELAY_HIGH  = 0;
+ 353   1          g_valve_open = 1;
+ 354   1      }
+ 355          
+ 356          /* ---------------------------------------------------------------
+ 357           * Прерывания таймеров
+ 358           * ------------------------------------------------------------- */
+ 359          
+ 360          void T0_ISR(void) interrupt 1
+ 361          {
+ 362   1          EA = 0;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 7   
+
+ 363   1          TH0 = (u8)(T1MS >> 8);
+ 364   1          TL0 = (u8)(T1MS & 0xFF);
+ 365   1      
+ 366   1          ++SysTick_RTC;
+ 367   1          if (SysTick_RTC >= 1000u)
+ 368   1          {
+ 369   2              SysTick_RTC = 0;
+ 370   2              g_rtc_1s_flag = 1;
+ 371   2          }
+ 372   1      
+ 373   1          /* Таймаут Modbus */
+ 374   1          if (g_mb_rx_timeout > 0)
+ 375   1          {
+ 376   2              --g_mb_rx_timeout;
+ 377   2              if (g_mb_rx_timeout == 0 && g_mb_rx_cnt > 0)
+ 378   2              {
+ 379   3                  g_mb_frame_ready = 1;
+ 380   3              }
+ 381   2          }
+ 382   1      
+ 383   1          EA = 1;
+ 384   1      }
+ 385          
+ 386          void T2_ISR(void) interrupt 5
+ 387          {
+ 388   1          EA = 0;
+ 389   1          TF2 = 0;
+ 390   1          if (SysTick) --SysTick;
+ 391   1          EA = 1;
+ 392   1      }
+ 393          
+ 394          /* Прерывание приёма UART5 */
+ 395          void UART5_RX_ISR(void) interrupt 13
+ 396          {
+ 397   1          u8 res;
+ 398   1          EA = 0;
+ 399   1      
+ 400   1          if (SCON3R & 0x01)
+ 401   1          {
+ 402   2              res = SBUF3_RX;
+ 403   2              SCON3R &= 0xFE;
+ 404   2      
+ 405   2              if (g_mb_rx_cnt < MODBUS_RX_BUF_SIZE)
+ 406   2              {
+ 407   3                  g_mb_rx_buf[g_mb_rx_cnt++] = res;
+ 408   3              }
+ 409   2              g_mb_rx_timeout = MODBUS_TIMEOUT_MS;
+ 410   2              g_mb_frame_ready = 0;
+ 411   2          }
+ 412   1      
+ 413   1          EA = 1;
+ 414   1      }
+ 415          
+ 416          static void delay_ms(u16 n)
+ 417          {
+ 418   1          SysTick = n;
+ 419   1          while (SysTick) { }
+ 420   1      }
+ 421          
+ 422          /* ---------------------------------------------------------------
+ 423           * UART5 отправка
+ 424           * ------------------------------------------------------------- */
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 8   
+
+ 425          
+ 426          static void uart5_send_byte(u8 dat)
+ 427          {
+ 428   1          SBUF3_TX = dat;
+ 429   1          while ((SCON3T & 0x01) == 0) ;
+ 430   1          SCON3T &= 0xFE;
+ 431   1      }
+ 432          
+ 433          static void uart5_send_buf(u8 *buf, u8 len)
+ 434          {
+ 435   1          RS485_TX_EN = 1;
+ 436   1          while (len--)
+ 437   1          {
+ 438   2              uart5_send_byte(*buf++);
+ 439   2          }
+ 440   1          RS485_TX_EN = 0;
+ 441   1      }
+ 442          
+ 443          /* ---------------------------------------------------------------
+ 444           * Modbus CRC16
+ 445           * ------------------------------------------------------------- */
+ 446          
+ 447          static u16 modbus_crc16(u8 *buf, u8 len)
+ 448          {
+ 449   1          u8 crc_hi = 0xFF;
+ 450   1          u8 crc_lo = 0xFF;
+ 451   1          u8 idx;
+ 452   1      
+ 453   1          while (len--)
+ 454   1          {
+ 455   2              idx = crc_hi ^ *buf++;
+ 456   2              crc_hi = crc_lo ^ CRC_HI[idx];
+ 457   2              crc_lo = CRC_LO[idx];
+ 458   2          }
+ 459   1      
+ 460   1          return ((u16)crc_hi << 8) | crc_lo;
+ 461   1      }
+ 462          
+ 463          /* ---------------------------------------------------------------
+ 464           * Доступ к VP DGUS
+ 465           * ------------------------------------------------------------- */
+ 466          
+ 467          static void read_dgus_vp(u16 addr, u8 *buf, u16 len)
+ 468          {
+ 469   1          u32 os_addr;
+ 470   1          u16 os_len;
+ 471   1          u8  offset;
+ 472   1      
+ 473   1          os_addr = (u32)addr / 2U;
+ 474   1          offset  = (u8)(addr & 0x01);
+ 475   1      
+ 476   1          ADR_H = (u8)((os_addr >> 16) & 0xFFU);
+ 477   1          ADR_M = (u8)((os_addr >> 8)  & 0xFFU);
+ 478   1          ADR_L = (u8)(os_addr & 0xFFU);
+ 479   1      
+ 480   1          ADR_INC = 1;
+ 481   1          RAMMODE = 0xAF;
+ 482   1      
+ 483   1          if (offset)
+ 484   1          {
+ 485   2              while (!APP_ACK) ;
+ 486   2              APP_EN = 1;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 9   
+
+ 487   2              while (APP_EN) ;
+ 488   2              *buf++ = DATA1;
+ 489   2              *buf++ = DATA0;
+ 490   2              --len;
+ 491   2          }
+ 492   1      
+ 493   1          os_len = len / 2U;
+ 494   1          if (len & 0x01) ++os_len;
+ 495   1      
+ 496   1          while (os_len--)
+ 497   1          {
+ 498   2              if ((len & 0x01) && (os_len == 0))
+ 499   2              {
+ 500   3                  while (!APP_ACK) ;
+ 501   3                  APP_EN = 1;
+ 502   3                  while (APP_EN) ;
+ 503   3                  *buf++ = DATA3;
+ 504   3                  *buf++ = DATA2;
+ 505   3                  break;
+ 506   3              }
+ 507   2      
+ 508   2              while (!APP_ACK) ;
+ 509   2              APP_EN = 1;
+ 510   2              while (APP_EN) ;
+ 511   2              *buf++ = DATA3;
+ 512   2              *buf++ = DATA2;
+ 513   2              *buf++ = DATA1;
+ 514   2              *buf++ = DATA0;
+ 515   2          }
+ 516   1      
+ 517   1          RAMMODE = 0x00;
+ 518   1      }
+ 519          
+ 520          static void write_dgus_vp(u16 vp_addr, const u8 *buf, u16 len)
+ 521          {
+ 522   1          u32 os_addr;
+ 523   1          u16 os_len;
+ 524   1          u8  odd;
+ 525   1      
+ 526   1          EA = 0;
+ 527   1      
+ 528   1          os_addr = (u32)vp_addr / 2U;
+ 529   1          odd     = (u8)(vp_addr & 0x01);
+ 530   1      
+ 531   1          ADR_H = (u8)((os_addr >> 16) & 0xFFU);
+ 532   1          ADR_M = (u8)((os_addr >> 8)  & 0xFFU);
+ 533   1          ADR_L = (u8)(os_addr & 0xFFU);
+ 534   1      
+ 535   1          ADR_INC = 0x01;
+ 536   1          RAMMODE = 0x8F;
+ 537   1      
+ 538   1          if (odd)
+ 539   1          {
+ 540   2              ADR_INC = 0x00;
+ 541   2              RAMMODE = 0xAF;
+ 542   2              while (!APP_ACK) ;
+ 543   2              APP_EN = 1;
+ 544   2              while (APP_EN) ;
+ 545   2      
+ 546   2              ADR_INC = 0x01;
+ 547   2              RAMMODE = 0x8F;
+ 548   2              while (!APP_ACK) ;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 10  
+
+ 549   2              DATA1 = *buf++;
+ 550   2              DATA0 = *buf++;
+ 551   2              APP_EN = 1;
+ 552   2              while (APP_EN) ;
+ 553   2              --len;
+ 554   2          }
+ 555   1      
+ 556   1          os_len = len / 2U;
+ 557   1          if (len & 0x01) ++os_len;
+ 558   1      
+ 559   1          while (os_len--)
+ 560   1          {
+ 561   2              if ((len & 0x01) && (os_len == 0))
+ 562   2              {
+ 563   3                  ADR_INC = 0x00;
+ 564   3                  RAMMODE = 0xAF;
+ 565   3                  while (!APP_ACK) ;
+ 566   3                  APP_EN = 1;
+ 567   3                  while (APP_EN) ;
+ 568   3      
+ 569   3                  ADR_INC = 0x01;
+ 570   3                  RAMMODE = 0x8F;
+ 571   3                  while (!APP_ACK) ;
+ 572   3                  DATA3 = *buf++;
+ 573   3                  DATA2 = *buf++;
+ 574   3                  APP_EN = 1;
+ 575   3                  while (APP_EN) ;
+ 576   3                  break;
+ 577   3              }
+ 578   2      
+ 579   2              while (!APP_ACK) ;
+ 580   2              DATA3 = *buf++;
+ 581   2              DATA2 = *buf++;
+ 582   2              DATA1 = *buf++;
+ 583   2              DATA0 = *buf++;
+ 584   2              APP_EN = 1;
+ 585   2              while (APP_EN) ;
+ 586   2          }
+ 587   1      
+ 588   1          RAMMODE = 0x00;
+ 589   1          EA = 1;
+ 590   1      }
+ 591          
+ 592          static void write_vp_u16(u16 vp_addr, u16 value)
+ 593          {
+ 594   1          u8 buf[2];
+ 595   1          buf[0] = (u8)(value >> 8);
+ 596   1          buf[1] = (u8)(value & 0xFF);
+ 597   1          write_dgus_vp(vp_addr, buf, 1);  /* len=1 слово (2 байта) */
+ 598   1      }
+ 599          
+ 600          static u16 read_vp_u16(u16 vp_addr)
+ 601          {
+ 602   1          u8 buf[2];
+ 603   1          read_dgus_vp(vp_addr, buf, 1);
+ 604   1          return ((u16)buf[0] << 8) | buf[1];
+ 605   1      }
+ 606          
+ 607          /* ---------------------------------------------------------------
+ 608           * Modbus: чтение/запись регистров
+ 609           * ------------------------------------------------------------- */
+ 610          
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 11  
+
+ 611          /* Чтение значения Modbus регистра по адресу */
+ 612          static u16 modbus_read_reg(u16 addr)
+ 613          {
+ 614   1          /* Графики 1..4: просто пробрасываем значения VP */
+ 615   1          if (addr >= 0x2020 && addr <= 0x2057)
+ 616   1          {
+ 617   2              return read_vp_u16(addr);
+ 618   2          }
+ 619   1      
+ 620   1          switch (addr)
+ 621   1          {
+ 622   2              /* Дата/время (только чтение) */
+ 623   2              case 0x2010: return 2000u + g_rtc.year;
+ 624   2              case 0x2011: return g_rtc.month;
+ 625   2              case 0x2012: return g_rtc.day;
+ 626   2              case 0x2013: return g_rtc.weekday;
+ 627   2              case 0x2014: return g_rtc.hour;
+ 628   2              case 0x2015: return g_rtc.min;
+ 629   2              case 0x2016: return g_rtc.sec;
+ 630   2      
+ 631   2              /* Основные регистры */
+ 632   2              case 0x2060: return g_onoff;
+ 633   2              case 0x2061: return g_speed;
+ 634   2              case 0x2062: return g_mode;
+ 635   2              case 0x2063: return g_t_real_10x;
+ 636   2              case 0x2064: return g_t_real_10x / 10u;
+ 637   2              case 0x2065: return g_t_set_10x;
+ 638   2              case 0x2066: return g_t_set_10x / 10u;
+ 639   2              case 0x2067: return g_graph_en;
+ 640   2      
+ 641   2              /* Настройки Modbus */
+ 642   2              case 0x2070: return g_mb_addr;
+ 643   2              case 0x2071: return g_mb_speed_idx;
+ 644   2              case 0x2072: return g_mb_proto;
+ 645   2      
+ 646   2              default:     return 0;
+ 647   2          }
+ 648   1      }
+ 649          
+ 650          /* Запись значения в Modbus регистр */
+ 651          static u8 modbus_write_reg(u16 addr, u16 value)
+ 652          {
+ 653   1          /* Графики 1..4: пишем напрямую в VP, значения проверяются у�
+             -�е логикой графиков */
+ 654   1          if (addr >= 0x2020 && addr <= 0x2057)
+ 655   1          {
+ 656   2              write_vp_u16(addr, value);
+ 657   2              return 1;
+ 658   2          }
+ 659   1      
+ 660   1          switch (addr)
+ 661   1          {
+ 662   2              case 0x2060:  /* ON/OFF */
+ 663   2                  if (value == 1 || value == 2)
+ 664   2                  {
+ 665   3                      g_onoff = (u8)value;
+ 666   3                      write_vp_u16(VP_ONOFF, value);
+ 667   3                      return 1;
+ 668   3                  }
+ 669   2                  break;
+ 670   2      
+ 671   2              case 0x2061:  /* Скорость */
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 12  
+
+ 672   2                  if (value >= 1 && value <= 4)
+ 673   2                  {
+ 674   3                      g_speed = (u8)value;
+ 675   3                      write_vp_u16(VP_SPEED, value);
+ 676   3                      return 1;
+ 677   3                  }
+ 678   2                  break;
+ 679   2      
+ 680   2              case 0x2062:  /* Режим */
+ 681   2                  if (value == 1 || value == 2)
+ 682   2                  {
+ 683   3                      g_mode = (u8)value;
+ 684   3                      write_vp_u16(VP_MODE, value);
+ 685   3                      return 1;
+ 686   3                  }
+ 687   2                  break;
+ 688   2      
+ 689   2              case 0x2065:  /* Уставка температуры (*10) */
+ 690   2                  if (value >= 160 && value <= 320)
+ 691   2                  {
+ 692   3                      g_t_set_10x = value;
+ 693   3                      write_vp_u16(VP_T_SET_10X, value);
+ 694   3                      write_vp_u16(VP_T_SET_INT, value / 10u);
+ 695   3                      return 1;
+ 696   3                  }
+ 697   2                  break;
+ 698   2      
+ 699   2              case 0x2067:  /* Графики вкл/выкл */
+ 700   2                  if (value == 1 || value == 2)
+ 701   2                  {
+ 702   3                      g_graph_en = (u8)value;
+ 703   3                      write_vp_u16(VP_GRAPH_EN, value);
+ 704   3                      return 1;
+ 705   3                  }
+ 706   2                  break;
+ 707   2      
+ 708   2              case 0x2070:  /* Адрес Modbus */
+ 709   2                  if (value >= 1 && value <= 247)
+ 710   2                  {
+ 711   3                      g_mb_addr = (u8)value;
+ 712   3                      write_vp_u16(VP_MB_ADDR, value);
+ 713   3                      return 1;
+ 714   3                  }
+ 715   2                  break;
+ 716   2      
+ 717   2              case 0x2071:  /* Скорость Modbus */
+ 718   2                  if (value >= 1 && value <= 7)
+ 719   2                  {
+ 720   3                      g_mb_speed_idx = (u8)value;
+ 721   3                      write_vp_u16(VP_MB_SPEED, value);
+ 722   3                      uart5_init(g_mb_speed_idx, g_mb_proto);
+ 723   3                      return 1;
+ 724   3                  }
+ 725   2                  break;
+ 726   2      
+ 727   2              case 0x2072:  /* Протокол Modbus (храним, но физически пока 8N1) */
+ 728   2                  if (value >= 1 && value <= 6)
+ 729   2                  {
+ 730   3                      g_mb_proto = (u8)value;
+ 731   3                      write_vp_u16(VP_MB_PROTO, value);
+ 732   3                      /* uart5_init(...) оставляем — вдруг потом реализуете по�
+             -�держку parity */
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 13  
+
+ 733   3                      uart5_init(g_mb_speed_idx, g_mb_proto);
+ 734   3                      return 1;
+ 735   3                  }
+ 736   2                  break;
+ 737   2          }
+ 738   1      
+ 739   1          return 0;
+ 740   1      }
+ 741          
+ 742          /* Проверка допустимости адреса регистра */
+ 743          static u8 modbus_addr_valid(u16 addr)
+ 744          {
+ 745   1          if (addr >= 0x2010 && addr <= 0x2016) return 1;  /* Дата/время */
+ 746   1          if (addr >= 0x2020 && addr <= 0x2057) return 1;  /* Графики 1..4 */
+ 747   1          if (addr >= 0x2060 && addr <= 0x2067) return 1;  /* Основные регистры */
+ 748   1          if (addr >= 0x2070 && addr <= 0x2072) return 1;  /* Настройки Modbus */
+ 749   1          return 0;
+ 750   1      }
+ 751          
+ 752          /* ---------------------------------------------------------------
+ 753           * Обработка Modbus RTU фрейма
+ 754           * ------------------------------------------------------------- */
+ 755          
+ 756          static void modbus_process_frame(void)
+ 757          {
+ 758   1          u8 addr, func;
+ 759   1          u16 reg_addr, reg_cnt, reg_val;
+ 760   1          u16 crc_recv, crc_calc;
+ 761   1          u8 i, tx_len;
+ 762   1      
+ 763   1          if (g_mb_rx_cnt < 4) goto cleanup;
+ 764   1      
+ 765   1          /* Проверка CRC */
+ 766   1          crc_calc = modbus_crc16(g_mb_rx_buf, g_mb_rx_cnt - 2);
+ 767   1          crc_recv = ((u16)g_mb_rx_buf[g_mb_rx_cnt - 1] << 8) | g_mb_rx_buf[g_mb_rx_cnt - 2];
+ 768   1      
+ 769   1          if (crc_calc != crc_recv) goto cleanup;
+ 770   1      
+ 771   1          addr = g_mb_rx_buf[0];
+ 772   1          func = g_mb_rx_buf[1];
+ 773   1      
+ 774   1          /* Проверка адреса */
+ 775   1          if (addr != g_mb_addr && addr != 0) goto cleanup;
+ 776   1      
+ 777   1          /* Обработка функций */
+ 778   1          switch (func)
+ 779   1          {
+ 780   2              case MB_FUNC_READ_REGS:  /* 0x03: Read Holding Registers */
+ 781   2                  if (g_mb_rx_cnt < 8) goto cleanup;
+ 782   2      
+ 783   2                  reg_addr = ((u16)g_mb_rx_buf[2] << 8) | g_mb_rx_buf[3];
+ 784   2                  reg_cnt  = ((u16)g_mb_rx_buf[4] << 8) | g_mb_rx_buf[5];
+ 785   2      
+ 786   2                  if (reg_cnt == 0 || reg_cnt > 125) goto send_error_value;
+ 787   2      
+ 788   2                  /* Проверка адресов */
+ 789   2                  for (i = 0; i < reg_cnt; ++i)
+ 790   2                  {
+ 791   3                      if (!modbus_addr_valid(reg_addr + i)) goto send_error_addr;
+ 792   3                  }
+ 793   2      
+ 794   2                  /* Формируем ответ */
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 14  
+
+ 795   2                  g_mb_tx_buf[0] = addr;
+ 796   2                  g_mb_tx_buf[1] = func;
+ 797   2                  g_mb_tx_buf[2] = (u8)(reg_cnt * 2);
+ 798   2                  tx_len = 3;
+ 799   2      
+ 800   2                  for (i = 0; i < reg_cnt; ++i)
+ 801   2                  {
+ 802   3                      reg_val = modbus_read_reg(reg_addr + i);
+ 803   3                      g_mb_tx_buf[tx_len++] = (u8)(reg_val >> 8);
+ 804   3                      g_mb_tx_buf[tx_len++] = (u8)(reg_val & 0xFF);
+ 805   3                  }
+ 806   2      
+ 807   2                  /* CRC */
+ 808   2                  crc_calc = modbus_crc16(g_mb_tx_buf, tx_len);
+ 809   2                  g_mb_tx_buf[tx_len++] = (u8)(crc_calc & 0xFF);
+ 810   2                  g_mb_tx_buf[tx_len++] = (u8)(crc_calc >> 8);
+ 811   2      
+ 812   2                  if (addr != 0) uart5_send_buf(g_mb_tx_buf, tx_len);
+ 813   2                  break;
+ 814   2      
+ 815   2              case MB_FUNC_WRITE_REG:  /* 0x06: Write Single Register */
+ 816   2                  if (g_mb_rx_cnt < 8) goto cleanup;
+ 817   2      
+ 818   2                  reg_addr = ((u16)g_mb_rx_buf[2] << 8) | g_mb_rx_buf[3];
+ 819   2                  reg_val  = ((u16)g_mb_rx_buf[4] << 8) | g_mb_rx_buf[5];
+ 820   2      
+ 821   2                  if (!modbus_addr_valid(reg_addr)) goto send_error_addr;
+ 822   2      
+ 823   2                  if (!modbus_write_reg(reg_addr, reg_val)) goto send_error_value;
+ 824   2      
+ 825   2                  /* Ответ = эхо запроса */
+ 826   2                  if (addr != 0)
+ 827   2                  {
+ 828   3                      uart5_send_buf(g_mb_rx_buf, g_mb_rx_cnt);
+ 829   3                  }
+ 830   2                  break;
+ 831   2      
+ 832   2              case MB_FUNC_WRITE_REGS:  /* 0x10: Write Multiple Registers */
+ 833   2                  if (g_mb_rx_cnt < 9) goto cleanup;
+ 834   2      
+ 835   2                  reg_addr = ((u16)g_mb_rx_buf[2] << 8) | g_mb_rx_buf[3];
+ 836   2                  reg_cnt  = ((u16)g_mb_rx_buf[4] << 8) | g_mb_rx_buf[5];
+ 837   2      
+ 838   2                  if (reg_cnt == 0 || reg_cnt > 123) goto send_error_value;
+ 839   2                  if (g_mb_rx_cnt < (9 + reg_cnt * 2)) goto cleanup;
+ 840   2      
+ 841   2                  /* Проверка и запись */
+ 842   2                  for (i = 0; i < reg_cnt; ++i)
+ 843   2                  {
+ 844   3                      if (!modbus_addr_valid(reg_addr + i)) goto send_error_addr;
+ 845   3                  }
+ 846   2      
+ 847   2                  for (i = 0; i < reg_cnt; ++i)
+ 848   2                  {
+ 849   3                      reg_val = ((u16)g_mb_rx_buf[7 + i * 2] << 8) | g_mb_rx_buf[8 + i * 2];
+ 850   3                      modbus_write_reg(reg_addr + i, reg_val);
+ 851   3                  }
+ 852   2      
+ 853   2                  /* Формируем ответ */
+ 854   2                  g_mb_tx_buf[0] = addr;
+ 855   2                  g_mb_tx_buf[1] = func;
+ 856   2                  g_mb_tx_buf[2] = g_mb_rx_buf[2];
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 15  
+
+ 857   2                  g_mb_tx_buf[3] = g_mb_rx_buf[3];
+ 858   2                  g_mb_tx_buf[4] = g_mb_rx_buf[4];
+ 859   2                  g_mb_tx_buf[5] = g_mb_rx_buf[5];
+ 860   2      
+ 861   2                  crc_calc = modbus_crc16(g_mb_tx_buf, 6);
+ 862   2                  g_mb_tx_buf[6] = (u8)(crc_calc & 0xFF);
+ 863   2                  g_mb_tx_buf[7] = (u8)(crc_calc >> 8);
+ 864   2      
+ 865   2                  if (addr != 0) uart5_send_buf(g_mb_tx_buf, 8);
+ 866   2                  break;
+ 867   2      
+ 868   2              default:
+ 869   2                  goto send_error_func;
+ 870   2          }
+ 871   1      
+ 872   1          goto cleanup;
+ 873   1      
+ 874   1      send_error_func:
+ 875   1          g_mb_tx_buf[0] = addr;
+ 876   1          g_mb_tx_buf[1] = func | 0x80;
+ 877   1          g_mb_tx_buf[2] = MB_ERR_ILLEGAL_FUNC;
+ 878   1          crc_calc = modbus_crc16(g_mb_tx_buf, 3);
+ 879   1          g_mb_tx_buf[3] = (u8)(crc_calc & 0xFF);
+ 880   1          g_mb_tx_buf[4] = (u8)(crc_calc >> 8);
+ 881   1          if (addr != 0) uart5_send_buf(g_mb_tx_buf, 5);
+ 882   1          goto cleanup;
+ 883   1      
+ 884   1      send_error_addr:
+ 885   1          g_mb_tx_buf[0] = addr;
+ 886   1          g_mb_tx_buf[1] = func | 0x80;
+ 887   1          g_mb_tx_buf[2] = MB_ERR_ILLEGAL_ADDR;
+ 888   1          crc_calc = modbus_crc16(g_mb_tx_buf, 3);
+ 889   1          g_mb_tx_buf[3] = (u8)(crc_calc & 0xFF);
+ 890   1          g_mb_tx_buf[4] = (u8)(crc_calc >> 8);
+ 891   1          if (addr != 0) uart5_send_buf(g_mb_tx_buf, 5);
+ 892   1          goto cleanup;
+ 893   1      
+ 894   1      send_error_value:
+ 895   1          g_mb_tx_buf[0] = addr;
+ 896   1          g_mb_tx_buf[1] = func | 0x80;
+ 897   1          g_mb_tx_buf[2] = MB_ERR_ILLEGAL_VALUE;
+ 898   1          crc_calc = modbus_crc16(g_mb_tx_buf, 3);
+ 899   1          g_mb_tx_buf[3] = (u8)(crc_calc & 0xFF);
+ 900   1          g_mb_tx_buf[4] = (u8)(crc_calc >> 8);
+ 901   1          if (addr != 0) uart5_send_buf(g_mb_tx_buf, 5);
+ 902   1      
+ 903   1      cleanup:
+ 904   1          g_mb_rx_cnt = 0;
+ 905   1          g_mb_frame_ready = 0;
+ 906   1      }
+ 907          
+ 908          /* ---------------------------------------------------------------
+ 909           * Управление реле
+ 910           * ------------------------------------------------------------- */
+ 911          
+ 912          static void relays_speeds_off(void)
+ 913          {
+ 914   1          RELAY_LOW  = 0;
+ 915   1          RELAY_MID  = 0;
+ 916   1          RELAY_HIGH = 0;
+ 917   1      }
+ 918          
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 16  
+
+ 919          static void set_valve(bit open)
+ 920          {
+ 921   1          RELAY_VALVE = open ? 1 : 0;
+ 922   1          g_valve_open = open;
+ 923   1      }
+ 924          
+ 925          static void set_speed_relays(u8 speed)
+ 926          {
+ 927   1          relays_speeds_off();
+ 928   1          switch (speed)
+ 929   1          {
+ 930   2              case 1: RELAY_LOW = 1;  break;
+ 931   2              case 2: RELAY_MID = 1;  break;
+ 932   2              case 3: RELAY_HIGH = 1; break;
+ 933   2          }
+ 934   1      }
+ 935          
+ 936          static void apply_off_state(void)
+ 937          {
+ 938   1          relays_speeds_off();
+ 939   1          set_valve(1);
+ 940   1      }
+ 941          
+ 942          /* ---------------------------------------------------------------
+ 943           * RTC
+ 944           * ------------------------------------------------------------- */
+ 945          
+ 946          static bit is_leap_year(u16 year)
+ 947          {
+ 948   1          if ((year % 400u) == 0u) return 1;
+ 949   1          if ((year % 100u) == 0u) return 0;
+ 950   1          if ((year % 4u) == 0u) return 1;
+ 951   1          return 0;
+ 952   1      }
+ 953          
+ 954          static u8 calc_weekday(u8 year, u8 month, u8 day)
+ 955          {
+ 956   1          u16 year_real, temp;
+ 957   1          u8  yearH, yearL;
+ 958   1      
+ 959   1          year_real = (u16)year + 2000u;
+ 960   1          yearH = (u8)(year_real / 100u);
+ 961   1          yearL = (u8)(year_real % 100u);
+ 962   1          if (yearH > 19) yearL += 100u;
+ 963   1      
+ 964   1          temp = yearL + yearL / 4u;
+ 965   1          temp = temp % 7u;
+ 966   1          temp = temp + day + table_week[month - 1];
+ 967   1          if ((yearL % 4u == 0) && (month < 3)) temp--;
+ 968   1          temp %= 7u;
+ 969   1      
+ 970   1          /* Возвращаем 1-7: 1=Пн, 2=Вт, 3=Ср, 4=Чт, 5=Пт, 6=Сб, 7=Вс */
+ 971   1          return (temp == 0) ? 7u : (u8)temp;
+ 972   1      }
+ 973          
+ 974          static void rtc_tick_1s(void)
+ 975          {
+ 976   1          u8 dim;
+ 977   1      
+ 978   1          g_rtc.sec++;
+ 979   1          if (g_rtc.sec >= 60)
+ 980   1          {
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 17  
+
+ 981   2              g_rtc.sec = 0;
+ 982   2              g_rtc.min++;
+ 983   2              if (g_rtc.min >= 60)
+ 984   2              {
+ 985   3                  g_rtc.min = 0;
+ 986   3                  g_rtc.hour++;
+ 987   3                  if (g_rtc.hour >= 24)
+ 988   3                  {
+ 989   4                      g_rtc.hour = 0;
+ 990   4                      g_rtc.day++;
+ 991   4      
+ 992   4                      dim = mon_table[g_rtc.month - 1];
+ 993   4                      if ((g_rtc.month == 2) && is_leap_year((u16)g_rtc.year + 2000u))
+ 994   4                          dim = 29;
+ 995   4      
+ 996   4                      if (g_rtc.day > dim)
+ 997   4                      {
+ 998   5                          g_rtc.day = 1;
+ 999   5                          g_rtc.month++;
+1000   5                          if (g_rtc.month > 12)
+1001   5                          {
+1002   6                              g_rtc.month = 1;
+1003   6                              g_rtc.year++;
+1004   6                          }
+1005   5                      }
+1006   4      
+1007   4                      g_rtc.weekday = calc_weekday(g_rtc.year, g_rtc.month, g_rtc.day);
+1008   4                  }
+1009   3              }
+1010   2          }
+1011   1      }
+1012          
+1013          static void rtc_read_from_dgus(void)
+1014          {
+1015   1          u16 vp_year, vp_month, vp_day, vp_hour, vp_min, vp_sec;
+1016   1          
+1017   1          /* Читаем из VP регистров UI (0x2010-0x2016) */
+1018   1          vp_year  = read_vp_u16(VP_YEAR);    /* 2000-2100 */
+1019   1          vp_month = read_vp_u16(VP_MONTH);   /* 101-112 */
+1020   1          vp_day   = read_vp_u16(VP_DAY);     /* 101-131 */
+1021   1          vp_hour  = read_vp_u16(VP_HOUR);    /* 100-123 */
+1022   1          vp_min   = read_vp_u16(VP_MIN);     /* 100-159 */
+1023   1          vp_sec   = read_vp_u16(VP_SEC);     /* 100-159 */
+1024   1          
+1025   1          /* Проверяем валидность данных от UI */
+1026   1          if (vp_year >= 2000 && vp_year <= 2100 &&
+1027   1              vp_month >= 101 && vp_month <= 112 &&
+1028   1              vp_day >= 101 && vp_day <= 131)
+1029   1          {
+1030   2              g_rtc.year  = (u8)(vp_year - 2000);
+1031   2              g_rtc.month = (u8)(vp_month - 100);
+1032   2              g_rtc.day   = (u8)(vp_day - 100);
+1033   2              g_rtc.hour  = (vp_hour >= 100 && vp_hour <= 123) ? (u8)(vp_hour - 100) : g_rtc.hour;
+1034   2              g_rtc.min   = (vp_min >= 100 && vp_min <= 159) ? (u8)(vp_min - 100) : g_rtc.min;
+1035   2              g_rtc.sec   = (vp_sec >= 100 && vp_sec <= 159) ? (u8)(vp_sec - 100) : g_rtc.sec;
+1036   2              
+1037   2              if (g_rtc.hour > 23) g_rtc.hour = 0;
+1038   2              if (g_rtc.min > 59) g_rtc.min = 0;
+1039   2              if (g_rtc.sec > 59) g_rtc.sec = 0;
+1040   2          }
+1041   1          /* Иначе оставляем текущие значения g_rtc */
+1042   1      
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 18  
+
+1043   1          g_rtc.weekday = calc_weekday(g_rtc.year, g_rtc.month, g_rtc.day);
+1044   1      }
+1045          
+1046          static void rtc_publish_to_vp(void)
+1047          {
+1048   1          u8 day_val   = (g_rtc.day   >= 1 && g_rtc.day   <= 31) ? g_rtc.day   : 1;
+1049   1          u8 month_val = (g_rtc.month >= 1 && g_rtc.month <= 12) ? g_rtc.month : 1;
+1050   1      
+1051   1          write_vp_u16(VP_YEAR,    2000u + g_rtc.year);
+1052   1          write_vp_u16(VP_MONTH,   100u + month_val);   /* min 101, max 112 */
+1053   1          write_vp_u16(VP_DAY,     100u + day_val);     /* min 101, max 131 */
+1054   1          write_vp_u16(VP_WEEKDAY, g_rtc.weekday);
+1055   1          write_vp_u16(VP_HOUR,    100u + g_rtc.hour);
+1056   1          write_vp_u16(VP_MIN,     100u + g_rtc.min);
+1057   1          write_vp_u16(VP_SEC,     100u + g_rtc.sec);
+1058   1      }
+1059          
+1060          /* ---------------------------------------------------------------
+1061           * Температура
+1062           * ------------------------------------------------------------- */
+1063          
+1064          
+1065          /* Глобальные переменные для температуры (точно как в tttt) */
+1066          static u16 adc_val[8] = {0};
+1067          static u16 adc_value[3] = {0};
+1068          static u16 R1_value = 0;
+1069          static u16 R2_value = 0;
+1070          static u16 R1_Temperature = 0;
+1071          static u16 R2_Temperature = 0;
+1072          static u16 Temperature_Real = 0;
+1073          static u16 Temperatrue_Real_Old = 0;
+1074          static u16 AD_Count = 0;
+1075          static u16 Temp_Pre = 10;           /* Шаг в десятых градуса: 5=0.5°C, 10=1°C */
+1076          static s16 Temp_Coef[3] = {10, 0, 110}; /* K1, K2, C для подстройки (+11°C по умолча
+             -нию при Temp_Pre=10) */
+1077          
+1078          /* Загрузка калибровочных коэффициентов температуры */
+1079          static void init_temperature_calibration(void)
+1080          {
+1081   1          bit coef_invalid = 0;
+1082   1          u16 prec;
+1083   1      
+1084   1          /* Коэффициенты: ожидаем K1 = K2 + 10, иначе дефолт */
+1085   1          read_dgus_vp(VP_T_COEF, (u8 *)Temp_Coef, 3);
+1086   1          if (Temp_Coef[0] <= 0 || Temp_Coef[1] < 0 || Temp_Coef[0] != Temp_Coef[1] + 10)
+1087   1          {
+1088   2              coef_invalid = 1;
+1089   2          }
+1090   1      
+1091   1          /* Точность: 0 → 0.5°C (Temp_Pre=5), 1 → 1.0°C (Temp_Pre=10) */
+1092   1          prec = read_vp_u16(VP_T_PRECISION);
+1093   1          if (prec == 0)
+1094   1          {
+1095   2              Temp_Pre = 5;
+1096   2          }
+1097   1          else if (prec == 1)
+1098   1          {
+1099   2              Temp_Pre = 10;
+1100   2          }
+1101   1          else
+1102   1          {
+1103   2              Temp_Pre = 10;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 19  
+
+1104   2              write_vp_u16(VP_T_PRECISION, 1);
+1105   2          }
+1106   1      
+1107   1          /* Если коэффициенты невалидны — подставляем дефолт с +11
+             -°C относительно Temp_Pre */
+1108   1          if (coef_invalid)
+1109   1          {
+1110   2              Temp_Coef[0] = 10;
+1111   2              Temp_Coef[1] = 0;
+1112   2              /* Смещение +11°C: C/Temp_Pre = 11 => C = 11 * Temp_Pre */
+1113   2              Temp_Coef[2] = (s16)(11 * Temp_Pre);
+1114   2          }
+1115   1      }
+1116          
+1117          /* Чтение ADC значений (точно как в tttt) */
+1118          static void Get_ADC_Value(void)
+1119          {
+1120   1          static u16 temp[8] = {0};
+1121   1          read_dgus_vp(OS_AD_VALUE, (u8 *)temp, 8);
+1122   1          adc_val[0] += temp[0];
+1123   1          adc_val[6] += temp[6];
+1124   1          adc_val[7] += temp[7];
+1125   1      }
+1126          
+1127          /* Расчёт сопротивления NTC (точно как в tttt) */
+1128          static void Get_R_Value(u16 n)
+1129          {
+1130   1          float R1_temp = 0.0f, R2_temp = 0.0f;
+1131   1          
+1132   1          adc_value[0] = adc_val[0] / n;
+1133   1          adc_value[1] = adc_val[6] / n;  /* adc_value[6] в tttt это индекс 1 */
+1134   1          adc_value[2] = adc_val[7] / n;  /* adc_value[7] в tttt это индекс 2 */
+1135   1          
+1136   1          R1_temp = adc_value[2] * 1.0f / (adc_value[1] - adc_value[2]);
+1137   1          R2_temp = adc_value[0] * 1.0f / (adc_value[1] - adc_value[0]);
+1138   1          
+1139   1          R1_value = (u16)(R1_temp * 10000);
+1140   1          R2_value = (u16)(R2_temp * 10000);
+1141   1      }
+1142          
+1143          /* Поиск в таблице NTC (точно как в tttt) */
+1144          static u8 FindTab(const u16 *pTab, u8 Tablong, u16 dat)
+1145          {
+1146   1          u8 st = 0, ed = 0, m = 0;
+1147   1          u8 i = 0;
+1148   1          
+1149   1          ed = NTC_TABLE_SIZE - 1;
+1150   1          
+1151   1          if (dat >= pTab[st])
+1152   1              return st;
+1153   1          else if (dat <= pTab[ed])
+1154   1              return ed;
+1155   1          
+1156   1          while (st < ed)
+1157   1          {
+1158   2              m = (st + ed) / 2;
+1159   2              if (dat == pTab[m])
+1160   2                  break;
+1161   2              if ((dat < pTab[m]) && (dat > pTab[m + 1]))
+1162   2                  break;
+1163   2              if (dat > pTab[m])
+1164   2                  ed = m;
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 20  
+
+1165   2              else
+1166   2                  st = m;
+1167   2              if (i++ > Tablong)
+1168   2                  break;
+1169   2          }
+1170   1          
+1171   1          if (st > ed)
+1172   1              return 0;
+1173   1          return m;
+1174   1      }
+1175          
+1176          /* Расчёт температуры (точно как в tttt) */
+1177          static void Get_Temperature(u16 tim, u16 n)
+1178          {
+1179   1          static u16 i = 0, temp_t = 0;
+1180   1          float temp1 = 0, temp2 = 0;
+1181   1          s16 diff;
+1182   1          s32 t_calc;
+1183   1          
+1184   1          if (AD_Count > tim)
+1185   1          {
+1186   2              Get_ADC_Value();
+1187   2              i++;
+1188   2              if (i >= n)
+1189   2              {
+1190   3                  Get_R_Value(n);
+1191   3                  R1_Temperature = FindTab(NTC1_TABLE, NTC_TABLE_SIZE, R1_value);
+1192   3                  R2_Temperature = FindTab(NTC2_TABLE, NTC_TABLE_SIZE, R2_value);
+1193   3                  
+1194   3                  temp1 = (NTC1_TABLE[R1_Temperature] - R1_value) * 1.0f / 
+1195   3                          (NTC1_TABLE[R1_Temperature] - NTC1_TABLE[R1_Temperature + 1]);
+1196   3                  temp2 = (NTC2_TABLE[R2_Temperature] - R2_value) * 1.0f / 
+1197   3                          (NTC2_TABLE[R2_Temperature] - NTC2_TABLE[R2_Temperature + 1]);
+1198   3                  
+1199   3                  R1_Temperature = R1_Temperature * 10 + (u16)(temp1 * 10);
+1200   3                  R2_Temperature = R2_Temperature * 10 + (u16)(temp2 * 10);
+1201   3                  
+1202   3                  /* Калиброванное значение (как в исходном проекте) */
+1203   3                  t_calc  = (s32)R1_Temperature * Temp_Coef[0];
+1204   3                  t_calc -= (s32)R2_Temperature * Temp_Coef[1];
+1205   3                  t_calc += Temp_Coef[2];
+1206   3                  t_calc  = (t_calc / (10 * (s32)Temp_Pre)) * 10;
+1207   3                  if (t_calc < 0) t_calc = 0;
+1208   3                  Temperature_Real = (u16)t_calc;
+1209   3                  
+1210   3                  /* Фильтрация */
+1211   3                  diff = (s16)Temperature_Real - (s16)Temperatrue_Real_Old;
+1212   3                  if (diff < 0) diff = -diff;
+1213   3                  
+1214   3                  if (diff == (s16)Temp_Pre)
+1215   3                  {
+1216   4                      temp_t++;
+1217   4                      if (temp_t < 5)
+1218   4                      {
+1219   5                          Temperature_Real = Temperatrue_Real_Old;
+1220   5                      }
+1221   4                      else
+1222   4                      {
+1223   5                          temp_t = 0;
+1224   5                          Temperatrue_Real_Old = Temperature_Real;
+1225   5                      }
+1226   4                  }
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 21  
+
+1227   3                  else if (diff >= (s16)(Temp_Pre * 2u))
+1228   3                  {
+1229   4                      Temperatrue_Real_Old = Temperature_Real;
+1230   4                      temp_t = 0;
+1231   4                  }
+1232   3                  
+1233   3                  g_t_real_10x = Temperature_Real;
+1234   3                  write_vp_u16(VP_T_REAL_10X, g_t_real_10x);
+1235   3                  write_vp_u16(VP_T_REAL_INT, g_t_real_10x / 10u);
+1236   3                  
+1237   3                  /* Сброс (memset в tttt) */
+1238   3                  adc_val[0] = 0;
+1239   3                  adc_val[6] = 0;
+1240   3                  adc_val[7] = 0;
+1241   3                  i = 0;
+1242   3              }
+1243   2              AD_Count = 0;
+1244   2          }
+1245   1      }
+1246          
+1247          /* Обёртка для вызова из main */
+1248          static void update_temperature(void)
+1249          {
+1250   1          AD_Count++;
+1251   1          Get_Temperature(200, 10);  /* tim=200, n=10 как в tttt */
+1252   1      }
+1253          
+1254          /* ---------------------------------------------------------------
+1255           * Чтение параметров из VP
+1256           * ------------------------------------------------------------- */
+1257          
+1258          static void read_control_params_from_vp(void)
+1259          {
+1260   1          u16 tmp;
+1261   1      
+1262   1          tmp = read_vp_u16(VP_ONOFF);
+1263   1          if (tmp == 1u || tmp == 2u)
+1264   1              g_onoff = (u8)tmp;
+1265   1      
+1266   1          tmp = read_vp_u16(VP_SPEED);
+1267   1          if (tmp >= 1u && tmp <= 4u)
+1268   1              g_speed = (u8)tmp;
+1269   1      
+1270   1          tmp = read_vp_u16(VP_MODE);
+1271   1          if (tmp == 1u || tmp == 2u)
+1272   1              g_mode = (u8)tmp;
+1273   1      
+1274   1          /* Уставка может храниться как *10 (0x2065), так и только целая
+             - часть (0x2066) */
+1275   1          tmp = read_vp_u16(VP_T_SET_10X);
+1276   1          if (tmp >= 160u && tmp <= 320u)          /* 16.0...32.0 */
+1277   1          {
+1278   2              g_t_set_10x = tmp;
+1279   2          }
+1280   1          else
+1281   1          {
+1282   2              /* Пытаемся взять из целочисленного регистра */
+1283   2              tmp = read_vp_u16(VP_T_SET_INT);
+1284   2              if (tmp >= 16u && tmp <= 32u)
+1285   2              {
+1286   3                  g_t_set_10x = tmp * 10u;
+1287   3                  /* Синхронизируем оба регистра в DGUS */
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 22  
+
+1288   3                  write_vp_u16(VP_T_SET_10X, g_t_set_10x);
+1289   3                  write_vp_u16(VP_T_SET_INT, tmp);
+1290   3              }
+1291   2          }
+1292   1      
+1293   1          tmp = read_vp_u16(VP_GRAPH_EN);
+1294   1          if (tmp == 1u || tmp == 2u)
+1295   1              g_graph_en = (u8)tmp;
+1296   1      }
+1297          
+1298          /* Чтение одного графика из VP в структуру g_graph_cfg[idx] */
+1299          static void read_single_graph_from_vp(u8 idx)
+1300          {
+1301   1          GraphConfig *cfg = &g_graph_cfg[idx];
+1302   1          u16 base;
+1303   1          u16 v;
+1304   1      
+1305   1          switch (idx)
+1306   1          {
+1307   2              case 0: base = VP_G1_STATUS; break;
+1308   2              case 1: base = VP_G2_STATUS; break;
+1309   2              case 2: base = VP_G3_STATUS; break;
+1310   2              case 3: base = VP_G4_STATUS; break;
+1311   2              default: return;
+1312   2          }
+1313   1      
+1314   1          v = read_vp_u16(base + 0u);         /* Статус */
+1315   1          cfg->status = (v == 2u) ? 2u : 1u;
+1316   1      
+1317   1          v = read_vp_u16(base + 1u);         /* Дни (битовая маска) */
+1318   1          cfg->days = (v <= 127u) ? (u8)v : 0u;
+1319   1      
+1320   1          v = read_vp_u16(base + 2u);         /* Скорость графика */
+1321   1          if (v >= 1u && v <= 5u) cfg->speed = (u8)v;
+1322   1          else                    cfg->speed = 5u;
+1323   1      
+1324   1          v = read_vp_u16(base + 3u);         /* Температура графика, 16..32 */
+1325   1          if (v >= 16u && v <= 32u) cfg->temp_int = (u8)v;
+1326   1          else                      cfg->temp_int = 22u;
+1327   1      
+1328   1          v = read_vp_u16(base + 4u);         /* Часы начала (100..123) */
+1329   1          if (v >= 100u && v <= 123u) cfg->shour = (u8)(v - 100u);
+1330   1          else                        cfg->shour = 0u;
+1331   1      
+1332   1          v = read_vp_u16(base + 5u);         /* Минуты начала (100..159) */
+1333   1          if (v >= 100u && v <= 159u) cfg->smin = (u8)(v - 100u);
+1334   1          else                        cfg->smin = 0u;
+1335   1      
+1336   1          v = read_vp_u16(base + 6u);         /* Часы конца (100..123) */
+1337   1          if (v >= 100u && v <= 123u) cfg->ehour = (u8)(v - 100u);
+1338   1          else                        cfg->ehour = 0u;
+1339   1      
+1340   1          v = read_vp_u16(base + 7u);         /* Минуты конца (100..159) */
+1341   1          if (v >= 100u && v <= 159u) cfg->emin = (u8)(v - 100u);
+1342   1          else                        cfg->emin = 0u;
+1343   1      }
+1344          
+1345          /* Чтение всех четырёх графиков */
+1346          static void read_graphs_from_vp(void)
+1347          {
+1348   1          u8 i;
+1349   1          for (i = 0; i < 4; ++i)
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 23  
+
+1350   1          {
+1351   2              read_single_graph_from_vp(i);
+1352   2          }
+1353   1      }
+1354          
+1355          /* ---------------------------------------------------------------
+1356           * Управление
+1357           * ------------------------------------------------------------- */
+1358          
+1359          static void update_valve_with_hysteresis(s16 delta)
+1360          {
+1361   1          if (g_valve_open)
+1362   1          {
+1363   2              if (delta < -TEMP_HYST_10X) set_valve(0);
+1364   2          }
+1365   1          else
+1366   1          {
+1367   2              if (delta > TEMP_HYST_10X) set_valve(1);
+1368   2          }
+1369   1      }
+1370          
+1371          static void apply_auto_speed_and_valve(s16 delta)
+1372          {
+1373   1          u8 spd;
+1374   1          bit vlv;
+1375   1      
+1376   1          if (g_mode == 2)
+1377   1          {
+1378   2              if (delta >= 0)        { spd = 1; vlv = 1; }
+1379   2              else if (delta >= -20) { spd = 1; vlv = 0; }
+1380   2              else if (delta >= -40) { spd = 2; vlv = 0; }
+1381   2              else                   { spd = 3; vlv = 0; }
+1382   2          }
+1383   1          else
+1384   1          {
+1385   2              if (delta < 0)        { spd = 1; vlv = 0; }
+1386   2              else if (delta < 20)  { spd = 1; vlv = 1; }
+1387   2              else if (delta < 40)  { spd = 2; vlv = 1; }
+1388   2              else                  { spd = 3; vlv = 1; }
+1389   2          }
+1390   1      
+1391   1          set_speed_relays(spd);
+1392   1          set_valve(vlv);
+1393   1      }
+1394          
+1395          static void apply_main_control(void)
+1396          {
+1397   1          s16 delta;
+1398   1      
+1399   1          if (g_onoff == 1)
+1400   1          {
+1401   2              apply_off_state();
+1402   2              return;
+1403   2          }
+1404   1      
+1405   1          delta = (s16)g_t_real_10x - (s16)g_t_set_10x;
+1406   1      
+1407   1          if (g_speed >= 1 && g_speed <= 3)
+1408   1          {
+1409   2              set_speed_relays(g_speed);
+1410   2              update_valve_with_hysteresis(delta);
+1411   2          }
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 24  
+
+1412   1          else if (g_speed == 4)
+1413   1          {
+1414   2              apply_auto_speed_and_valve(delta);
+1415   2          }
+1416   1          else
+1417   1          {
+1418   2              set_speed_relays(0);
+1419   2          }
+1420   1      }
+1421          
+1422          /* ---------------------------------------------------------------
+1423           * Графики
+1424           * ------------------------------------------------------------- */
+1425          
+1426          static bit graph_is_today(const GraphConfig* g)
+1427          {
+1428   1          if (g_rtc.weekday > 6) return 0;
+1429   1          return (g->days & (1u << g_rtc.weekday)) ? 1 : 0;
+1430   1      }
+1431          
+1432          static void process_single_graph(u8 idx)
+1433          {
+1434   1          GraphConfig* cfg = &g_graph_cfg[idx];
+1435   1          GraphRuntime* rt = &g_graph_rt[idx];
+1436   1      
+1437   1          if (g_graph_en != 2 || cfg->status != 2 || !graph_is_today(cfg))
+1438   1          {
+1439   2              rt->active = 0;
+1440   2              return;
+1441   2          }
+1442   1      
+1443   1          if (!rt->active && g_rtc.hour == cfg->shour && g_rtc.min == cfg->smin && g_rtc.sec == 0)
+1444   1          {
+1445   2              rt->active = 1;
+1446   2              rt->prev_speed = g_speed;
+1447   2              rt->prev_t_set = g_t_set_10x;
+1448   2      
+1449   2              if (cfg->speed == 5) g_onoff = 1;
+1450   2              else
+1451   2              {
+1452   3                  g_onoff = 2;
+1453   3                  g_speed = cfg->speed;
+1454   3                  g_t_set_10x = (u16)cfg->temp_int * 10u;
+1455   3              }
+1456   2          }
+1457   1      
+1458   1          if (rt->active && g_rtc.hour == cfg->ehour && g_rtc.min == cfg->emin && g_rtc.sec == 0)
+1459   1          {
+1460   2              u8 i, other = 0;
+1461   2              rt->active = 0;
+1462   2      
+1463   2              for (i = 0; i < 4; ++i)
+1464   2                  if (g_graph_rt[i].active) { other = 1; break; }
+1465   2      
+1466   2              if (!other) g_onoff = 1;
+1467   2              else
+1468   2              {
+1469   3                  g_speed = rt->prev_speed;
+1470   3                  g_t_set_10x = rt->prev_t_set;
+1471   3              }
+1472   2          }
+1473   1      }
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 25  
+
+1474          
+1475          static void update_graphs(void)
+1476          {
+1477   1          u8 i;
+1478   1      
+1479   1          /* Каждый раз подтягиваем актуальные настройки графиков
+             - из VP */
+1480   1          read_graphs_from_vp();
+1481   1      
+1482   1          for (i = 0; i < 4; ++i)
+1483   1          {
+1484   2              process_single_graph(i);
+1485   2          }
+1486   1      }
+1487          
+1488          /* ---------------------------------------------------------------
+1489           * Инициализация
+1490           * ------------------------------------------------------------- */
+1491          
+1492          static void init_state_and_vps(void)
+1493          {
+1494   1          u8 i;
+1495   1          u16 tmp;
+1496   1      
+1497   1          /* Чтение Modbus настроек из VP */
+1498   1          tmp = read_vp_u16(VP_MB_ADDR);
+1499   1          if (tmp >= 1 && tmp <= 247) g_mb_addr = (u8)tmp;
+1500   1          else { g_mb_addr = 247; write_vp_u16(VP_MB_ADDR, 247); }
+1501   1      
+1502   1          tmp = read_vp_u16(VP_MB_SPEED);
+1503   1          if (tmp >= 1 && tmp <= 7) g_mb_speed_idx = (u8)tmp;
+1504   1          else { g_mb_speed_idx = 7; write_vp_u16(VP_MB_SPEED, 7); }
+1505   1      
+1506   1          tmp = read_vp_u16(VP_MB_PROTO);
+1507   1          if (tmp >= 1 && tmp <= 6) g_mb_proto = (u8)tmp;
+1508   1          else { g_mb_proto = 1; write_vp_u16(VP_MB_PROTO, 1); }
+1509   1      
+1510   1          /* Чтение основных параметров */
+1511   1          tmp = read_vp_u16(VP_ONOFF);
+1512   1          if (tmp == 1 || tmp == 2) g_onoff = (u8)tmp;
+1513   1          else { g_onoff = 2; write_vp_u16(VP_ONOFF, 2); }
+1514   1      
+1515   1          tmp = read_vp_u16(VP_SPEED);
+1516   1          if (tmp >= 1 && tmp <= 4) g_speed = (u8)tmp;
+1517   1          else { g_speed = 1; write_vp_u16(VP_SPEED, 1); }
+1518   1      
+1519   1          tmp = read_vp_u16(VP_MODE);
+1520   1          if (tmp == 1 || tmp == 2) g_mode = (u8)tmp;
+1521   1          else { g_mode = 2; write_vp_u16(VP_MODE, 2); }
+1522   1      
+1523   1          tmp = read_vp_u16(VP_T_SET_10X);
+1524   1          if (tmp >= 160 && tmp <= 320) g_t_set_10x = tmp;
+1525   1          else
+1526   1          {
+1527   2              g_t_set_10x = 220;
+1528   2              write_vp_u16(VP_T_SET_10X, 220);
+1529   2              write_vp_u16(VP_T_SET_INT, 22);
+1530   2          }
+1531   1      
+1532   1          tmp = read_vp_u16(VP_GRAPH_EN);
+1533   1          if (tmp == 1 || tmp == 2) g_graph_en = (u8)tmp;
+1534   1          else { g_graph_en = 1; write_vp_u16(VP_GRAPH_EN, 1); }
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 26  
+
+1535   1      
+1536   1          /* Калибровка температуры */
+1537   1          init_temperature_calibration();
+1538   1      
+1539   1          g_t_real_10x = 220;
+1540   1          write_vp_u16(VP_T_REAL_10X, g_t_real_10x);
+1541   1          write_vp_u16(VP_T_REAL_INT, g_t_real_10x / 10u);
+1542   1      
+1543   1          /* Рантайм-часть графиков (что было до активации) */
+1544   1          for (i = 0; i < 4; ++i)
+1545   1          {
+1546   2              g_graph_rt[i].active     = 0;
+1547   2              g_graph_rt[i].prev_speed = g_speed;
+1548   2              g_graph_rt[i].prev_t_set = g_t_set_10x;
+1549   2          }
+1550   1      
+1551   1          /* Читаем фактические настройки графиков из VP */
+1552   1          read_graphs_from_vp();
+1553   1      }
+1554          
+1555          /* ---------------------------------------------------------------
+1556           * MAIN
+1557           * ------------------------------------------------------------- */
+1558          
+1559          int main(void)
+1560          {
+1561   1          init_system();
+1562   1          init_relays();
+1563   1          init_state_and_vps();
+1564   1      
+1565   1          /* Инициализация UART5 для Modbus */
+1566   1          uart5_init(g_mb_speed_idx, g_mb_proto);
+1567   1      
+1568   1          /* Чтение времени */
+1569   1          rtc_read_from_dgus();
+1570   1          rtc_publish_to_vp();
+1571   1      
+1572   1          for (;;)
+1573   1          {
+1574   2              /* Modbus обработка */
+1575   2              if (g_mb_frame_ready)
+1576   2              {
+1577   3                  modbus_process_frame();
+1578   3              }
+1579   2      
+1580   2              /* Обновление температуры */
+1581   2              update_temperature();
+1582   2      
+1583   2              /* Обработка раз в секунду */
+1584   2              if (g_rtc_1s_flag)
+1585   2              {
+1586   3                  g_rtc_1s_flag = 0;
+1587   3      
+1588   3                  rtc_tick_1s();
+1589   3                  rtc_publish_to_vp();
+1590   3      
+1591   3                  read_control_params_from_vp();
+1592   3                  update_graphs();
+1593   3                  apply_main_control();
+1594   3              }
+1595   2      
+1596   2              delay_ms(5);
+C51 COMPILER V9.60.7.0   MAIN                                                              12/08/2025 17:12:57 PAGE 27  
+
+1597   2          }
+1598   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   8489    ----
+   CONSTANT SIZE    =    936    ----
+   XDATA SIZE       =    260     121
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      4    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      3       3
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

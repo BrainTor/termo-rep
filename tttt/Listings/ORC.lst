@@ -1,0 +1,1059 @@
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 1   
+
+
+C51 COMPILER V9.50a, COMPILATION OF MODULE ORC
+OBJECT MODULE PLACED IN .\obj\ORC.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE ORC.C LARGE OBJECTADVANCED BROWSE INCDIR(..\T5L51) DEBUG PRINT(.\Listings\O
+                    -RC.lst) TABS(2) OBJECT(.\obj\ORC.obj)
+
+line level    source
+
+   1          
+   2          #include "math.h"
+   3          #include "sys.h"
+   4          #include "TP_draw.h"
+   5          
+   6          
+   7          typFNT_GB16_st   ReadGb;
+   8          pixel_coord    S1[32],M1[32],M2[32],E1[32],Pmove1;
+   9          
+  10          
+  11          u8  absC(s8 xx,s8 yy)
+  12          {
+  13   1        u8 data xxx,yyy,xy;
+  14   1        xxx = xx;
+  15   1        yyy = yy;
+  16   1        if(xx>yy)
+  17   1        {
+  18   2          xy = xxx-yyy;
+  19   2        }
+  20   1        else
+  21   1        {
+  22   2          xy = yyy-xxx;
+  23   2        }
+  24   1          return  xy;
+  25   1      }
+  26          /////////////////////////////////////////////////////////////////////////
+  27          //RosenfeldÏ¸»¯Ëã·¨
+  28          //¹¦ÄÜ£º¶ÔÍ¼Ïó½øÐÐÏ¸»¯
+  29          //²ÎÊý£ºimage£º´ú±íÍ¼ÏóµÄÒ»Î¬Êý×é
+  30          //      lx£ºÍ¼Ïó¿í¶È
+  31          //      ly£ºÍ¼Ïó¸ß¶È
+  32          //      ÎÞ·µ»ØÖµ
+  33          
+  34          void ThinnerRosenfeld(void *image, unsigned long lx, unsigned long ly)
+  35          {
+  36   1          char *f, *g;
+  37   1          char n[10];
+  38   1          char a[5] = {0, -1, 1, 0, 0};
+  39   1          char b[5] = {0, 0, 0, 1, -1};
+  40   1          char nrnd, cond, n48, n26, n24, n46, n68, n82, n123, n345, n567, n781;
+  41   1          short k, shori;
+  42   1          unsigned long i, j;
+  43   1          long ii, jj, kk, kk1, kk2, kk3, size;
+  44   1          size = (long)lx * (long)ly;
+  45   1      
+  46   1      //     g = (char *)malloc(size);
+  47   1      //     if(g==NULL)
+  48   1      //     {
+  49   1      //         printf("error in alocating mmeory!/n");
+  50   1      //         return;
+  51   1      //     }
+  52   1      
+  53   1          f = (char *)image;
+  54   1          for(kk=0l; kk<size; kk++)
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 2   
+
+  55   1          {
+  56   2              g[kk] = f[kk];
+  57   2          }
+  58   1      
+  59   1          do
+  60   1          {
+  61   2              shori = 0;
+  62   2              for(k=1; k<=4; k++)
+  63   2              {
+  64   3                  for(i=1; i<lx-1; i++)
+  65   3                  {
+  66   4                      ii = i + a[k];
+  67   4      
+  68   4                      for(j=1; j<ly-1; j++)
+  69   4                      {
+  70   5                          kk = i*ly + j;
+  71   5      
+  72   5                          if(!f[kk])
+  73   5                              continue;
+  74   5      
+  75   5                          jj = j + b[k];
+  76   5                          kk1 = ii*ly + jj;
+  77   5      
+  78   5                          if(f[kk1])
+  79   5                              continue;
+  80   5      
+  81   5                          kk1 = kk - ly -1;
+  82   5                          kk2 = kk1 + 1;
+  83   5                          kk3 = kk2 + 1;
+  84   5                          n[3] = f[kk1];
+  85   5                          n[2] = f[kk2];
+  86   5                          n[1] = f[kk3];
+  87   5                          kk1 = kk - 1;
+  88   5                          kk3 = kk + 1;
+  89   5                          n[4] = f[kk1];
+  90   5                          n[8] = f[kk3];
+  91   5                          kk1 = kk + ly - 1;
+  92   5                          kk2 = kk1 + 1;
+  93   5                          kk3 = kk2 + 1;
+  94   5                          n[5] = f[kk1];
+  95   5                          n[6] = f[kk2];
+  96   5                          n[7] = f[kk3];
+  97   5      
+  98   5                          nrnd = n[1] + n[2] + n[3] + n[4]
+  99   5                              +n[5] + n[6] + n[7] + n[8];
+ 100   5                          if(nrnd<=1)
+ 101   5                              continue;
+ 102   5      
+ 103   5                          cond = 0;
+ 104   5                          n48 = n[4] + n[8];
+ 105   5                          n26 = n[2] + n[6];
+ 106   5                          n24 = n[2] + n[4];
+ 107   5                          n46 = n[4] + n[6];
+ 108   5                          n68 = n[6] + n[8];
+ 109   5                          n82 = n[8] + n[2];
+ 110   5                          n123 = n[1] + n[2] + n[3];
+ 111   5                          n345 = n[3] + n[4] + n[5];
+ 112   5                          n567 = n[5] + n[6] + n[7];
+ 113   5                          n781 = n[7] + n[8] + n[1];
+ 114   5      
+ 115   5                          if(n[2]==1 && n48==0 && n567>0)
+ 116   5                          {
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 3   
+
+ 117   6                              if(!cond)
+ 118   6                                  continue;
+ 119   6                              g[kk] = 0;
+ 120   6                              shori = 1;
+ 121   6                              continue;
+ 122   6                          }
+ 123   5      
+ 124   5                          if(n[6]==1 && n48==0 && n123>0)
+ 125   5                          {
+ 126   6                              if(!cond)
+ 127   6                                  continue;
+ 128   6                              g[kk] = 0;
+ 129   6                              shori = 1;
+ 130   6                              continue;
+ 131   6                          }
+ 132   5      
+ 133   5                          if(n[8]==1 && n26==0 && n345>0)
+ 134   5                          {
+ 135   6                              if(!cond)
+ 136   6                                  continue;
+ 137   6                              g[kk] = 0;
+ 138   6                              shori = 1;
+ 139   6                              continue;
+ 140   6                          }
+ 141   5      
+ 142   5                          if(n[4]==1 && n26==0 && n781>0)
+ 143   5                          {
+ 144   6                              if(!cond)
+ 145   6                                  continue;
+ 146   6                              g[kk] = 0;
+ 147   6                              shori = 1;
+ 148   6                              continue;
+ 149   6                          }
+ 150   5      
+ 151   5                          if(n[5]==1 && n46==0)
+ 152   5                          {
+ 153   6                              if(!cond)
+ 154   6                                  continue;
+ 155   6                              g[kk] = 0;
+ 156   6                              shori = 1;
+ 157   6                              continue;
+ 158   6                          }
+ 159   5      
+ 160   5                          if(n[7]==1 && n68==0)
+ 161   5                          {
+ 162   6                              if(!cond)
+ 163   6                                  continue;
+ 164   6                              g[kk] = 0;
+ 165   6                              shori = 1;
+ 166   6                              continue;
+ 167   6                          }
+ 168   5      
+ 169   5                          if(n[1]==1 && n82==0)
+ 170   5                          {
+ 171   6                              if(!cond)
+ 172   6                                  continue;
+ 173   6                              g[kk] = 0;
+ 174   6                              shori = 1;
+ 175   6                              continue;
+ 176   6                          }
+ 177   5      
+ 178   5                          if(n[3]==1 && n24==0)
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 4   
+
+ 179   5                          {
+ 180   6                              if(!cond)
+ 181   6                                  continue;
+ 182   6                              g[kk] = 0;
+ 183   6                              shori = 1;
+ 184   6                              continue;
+ 185   6                          }
+ 186   5      
+ 187   5                          cond = 1;
+ 188   5                          if(!cond)
+ 189   5                              continue;
+ 190   5                          g[kk] = 0;
+ 191   5                          shori = 1;
+ 192   5                      }
+ 193   4                  }
+ 194   3      
+ 195   3                  for(i=0; i<lx; i++)
+ 196   3                  {
+ 197   4                      for(j=0; j<ly; j++)
+ 198   4                      {
+ 199   5                          kk = i*ly + j;
+ 200   5                          f[kk] = g[kk];
+ 201   5                      }
+ 202   4                  }
+ 203   3              }
+ 204   2          }while(shori);
+ 205   1      
+ 206   1      //     free(g);
+ 207   1      }          
+ 208          //ÌØÕ÷ÖµÌáÈ¡£¬8·½Ïò¡¢ÌÝ¶ÈÌØÕ÷
+ 209          void  feature_extraction(u8* buf,s16* charact_buf,u8  num)
+ 210          {
+ 211   1        u16  charact[4]={0};
+ 212   1        u8    pixels_data[32][32];
+ 213   1        data u8   i,j,see;
+ 214   1        data u16    xx,xy,yx,yy;
+ 215   1        for(i=0;i<num;i++)
+ 216   1        {
+ 217   2          for(j=0;j<num;j++)
+ 218   2          {
+ 219   3            pixels_data[i][j]=*buf++;     //Ö¸Õë¸³Öµµ½¶þÎ¬Êý×é
+ 220   3            see = pixels_data[i][j];
+ 221   3          }
+ 222   2        }
+ 223   1        xx=xy=yx=yy=0;
+ 224   1        for(i=1;i<num-1;i++)
+ 225   1        {
+ 226   2          for(j=1;j<num-1;j++)
+ 227   2          {
+ 228   3            if(pixels_data[i][j])       //Èç¹û¸ÃµãÎª1
+ 229   3            {
+ 230   4              if(pixels_data[i-1][j-1])   //×óÉÏ½Ç
+ 231   4              {
+ 232   5                xy+=5;
+ 233   5              }
+ 234   4              if(pixels_data[i+1][j+1])   //ÓÒÏÂ½Ç
+ 235   4              {
+ 236   5                xy+=5;
+ 237   5              }
+ 238   4              if(pixels_data[i-1][j+1])   //×óÏÂ½Ç
+ 239   4              {
+ 240   5                yx+=5;
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 5   
+
+ 241   5              }
+ 242   4              if(pixels_data[i+1][j-1])   //ÓÒÉÏ½Ç
+ 243   4              {
+ 244   5                yx+=5;
+ 245   5              }
+ 246   4              if(pixels_data[i-1][j])   //ÉÏ²à
+ 247   4              {
+ 248   5                yy+=5;
+ 249   5              }
+ 250   4              if(pixels_data[i+1][j])   //ÏÂ²à
+ 251   4              {
+ 252   5                yy+=5;
+ 253   5              }
+ 254   4              if(pixels_data[i][j-1])   //×ó²à
+ 255   4              {
+ 256   5                xx+=5;
+ 257   5              }
+ 258   4              if(pixels_data[i][j+1])   //ÓÒ²à
+ 259   4              {
+ 260   5                xx+=5;
+ 261   5              }
+ 262   4            }
+ 263   3          }
+ 264   2        }
+ 265   1        *charact_buf++ = xx/10;
+ 266   1        *charact_buf++ = xy/10;
+ 267   1        *charact_buf++ = yx/10;
+ 268   1        *charact_buf++ = yy/10;
+ 269   1        
+ 270   1      }
+ 271          /*ÏñËØµã×ª»»¡¢Ï¸»¯*/
+ 272          void  coordinate_transf(s16* buf,u8 pixeX,u8 pixeY)
+ 273          {
+ 274   1          data u8  ramdata_rd[12];
+ 275   1          u8  pixels_rd[192]={0};
+ 276   1          u8  pixels_cg1[32][32]={0};
+ 277   1          u8  pixels_cg2[32][32]={0};
+ 278   1          u8  pixels_cg3[32][32]={0};
+ 279   1          u8  pixels_cg4[16][16]={0};
+ 280   1          data s16  charact_value[4]={0};
+ 281   1          u32 ramaddr = 0x8000;
+ 282   1          data u16    pixels_ct,pixels_ct2,i,j,nX,nY,ii,jj;
+ 283   1          u8    i1,i2,j1,j2;
+ 284   1          data u8 ifblankX1,ifblankY1,ifblankX2,ifblankY2,squarxx,squaryy;
+ 285   1          data u8  squarxy,seedata,m,n,Mct,Mct2;
+ 286   1        
+ 287   1        nX=pixeX/32;
+ 288   1        nY=pixeY/32;
+ 289   1        pixels_ct=pixels_ct2=0;
+ 290   1        //×ø±ê±ä»»£¬½«ÏñËØµãÐÅÏ¢×ª»»Îª32*32µãÕó
+ 291   1        for(j = 0;j<pixeY;j++)  //ÐÐÐÅÏ¢
+ 292   1        {
+ 293   2          for(i = 0;i<pixeX;i=i+4)  //ÁÐÐÅÏ¢
+ 294   2          {
+ 295   3            read_ram_vp(0x8000+((j*pixeX/4)+i/4)*3,ramdata_rd,3); //Ò»¸öµØÖ·4×Ö½Ú£¬Ò»¸öÏñËØµãÐÅÏ¢Õ¼3×Ö½Ú£¬ËùÒÔÃ¿´ÎÈ
+             -¡3¸öµØÖ·4¸öÏñËØµãÐÅÏ¢
+ 296   3            if((ramdata_rd[0]==0)&&(ramdata_rd[1]==0)&&(ramdata_rd[2]==0xff))   //ÑÕÉ«Îªºì£¬Ä¬ÈÏÎªºìÉ«±Ê¼£
+ 297   3            {
+ 298   4              pixels_cg1[j/6][i/6]++;
+ 299   4            }
+ 300   3            if((ramdata_rd[3]==0)&&(ramdata_rd[4]==0)&&(ramdata_rd[5]==0xff))
+ 301   3            {
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 6   
+
+ 302   4              pixels_cg1[j/6][(i+1)/6]++;
+ 303   4            }
+ 304   3            if((ramdata_rd[6]==0)&&(ramdata_rd[7]==0)&&(ramdata_rd[8]==0xff))
+ 305   3            {
+ 306   4              pixels_cg1[j/6][(i+2)/6]++;
+ 307   4            }
+ 308   3            if((ramdata_rd[9]==0)&&(ramdata_rd[10]==0)&&(ramdata_rd[11]==0xff))
+ 309   3            {
+ 310   4              pixels_cg1[j/6][(i+3)/6]++;
+ 311   4            }
+ 312   3          }
+ 313   2        }
+ 314   1        for(m = 0;m<32;m++)
+ 315   1        {
+ 316   2          for(n = 0;n<32;n++)
+ 317   2          {
+ 318   3            if(pixels_cg1[m][n]<15)
+ 319   3            {
+ 320   4              pixels_cg1[m][n] = 0;
+ 321   4            }
+ 322   3            else 
+ 323   3            {
+ 324   4              seedata = pixels_cg1[m][n];
+ 325   4              pixels_cg1[m][n] = 1;
+ 326   4            }
+ 327   3          }
+ 328   2        }
+ 329   1        //¹ì¼£È¡Ö±£¬Ð¡ÓÚÒ»¶¨½Ç¶ÈµÄÖµÊÓÎªÖ±Ïß
+ 330   1        //ºáÏòÅÐ¶Ï
+ 331   1        i = 0;
+ 332   1        for(m = 1;m<31;m++)
+ 333   1        {
+ 334   2          for(n = 1;n<31;n++)
+ 335   2          {
+ 336   3            if(pixels_cg1[m][n]==1)
+ 337   3            {
+ 338   4              if((pixels_cg1[m][n-1]==0)&&(pixels_cg1[m-1][n-1]==0)&&(pixels_cg1[m+1][n-1]==0))//×ó²àÎÞÓÐÐ§µã
+ 339   4              {
+ 340   5                if(((pixels_cg1[m-1][n]==1)&&(pixels_cg1[m-2][n-1]==1))||((pixels_cg1[m+1][n]==1)&&(pixels_cg1[m+2][n
+             --1]==1)))//ÏòÉÏ»òÏòÏÂÁ¬Í¨
+ 341   5                {
+ 342   6                }
+ 343   5                else
+ 344   5                {
+ 345   6                  if((pixels_cg1[m][n+1]==1)||((pixels_cg1[m-1][n+1]==1)&&(pixels_cg1[m-1][n]==0))||((pixels_cg1[m+1][
+             -n+1]==1)&&(pixels_cg1[m+1][n]==0))) //ÓÒ²àÓÐÓÐÐ§µã
+ 346   6                  {
+ 347   7                    S1[i].coordX = m;
+ 348   7                    S1[i].coordY = n;
+ 349   7                    i++;
+ 350   7                    ////////¼ÇÂ¼¸÷¸öºáÏòÆðµãµÄ×ø±ê
+ 351   7                  }
+ 352   6                }
+ 353   5                
+ 354   5              }
+ 355   4            }
+ 356   3          }
+ 357   2        }
+ 358   1        Mct = Mct2=0;
+ 359   1        for(j=0;j<i;j++)    //¶ÔÓÚÃ¿¸öºáÏòµÄÆðµã
+ 360   1        {
+ 361   2        Mct = Mct2=0;
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 7   
+
+ 362   2          m=S1[j].coordX;
+ 363   2          n=S1[j].coordY;
+ 364   2          do
+ 365   2          {
+ 366   3            if(pixels_cg1[m][n+1]==1)
+ 367   3            {
+ 368   4      //        seedata = pixels_cg1[m+1][n+1];
+ 369   4      //        seedata = M1[Mct-1].coordX;
+ 370   4      //        seedata = M1[Mct-1].coordY;
+ 371   4      //        seedata = M1[Mct-2].coordX;
+ 372   4      //        seedata = M1[Mct-2].coordY;
+ 373   4              if((pixels_cg1[m+1][n+1]==1)&&
+ 374   4                (((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY<n))||
+ 375   4              ((Mct>2)&&((M1[Mct-2].coordX==m)&&(M1[Mct-2].coordY<n))&&((M1[Mct-3].coordX<m)&&(M1[Mct-3].coordY<n-1)
+             -))||
+ 376   4              ((Mct>2)&&((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY==n))&&((M1[Mct-3].coordX<m-1)&&(M1[Mct-3].coordY<n)
+             -))))
+ 377   4              {
+ 378   5                m+=1;
+ 379   5                n+=1;
+ 380   5                M1[Mct].coordX = m;
+ 381   5                M1[Mct].coordY = n;
+ 382   5              }
+ 383   4              else if((pixels_cg1[m-1][n+1]==1)&&
+ 384   4                (((M1[Mct-2].coordX>m)&&(M1[Mct-2].coordY<n))||
+ 385   4              ((Mct>2)&&((M1[Mct-2].coordX==m)&&(M1[Mct-2].coordY<n))&&((M1[Mct-3].coordX>m)&&(M1[Mct-3].coordY<n-1)
+             -))||
+ 386   4              ((Mct>2)&&((M1[Mct-2].coordX>m)&&(M1[Mct-2].coordY==n))&&((M1[Mct-3].coordX>m+1)&&(M1[Mct-3].coordY<n)
+             -))))
+ 387   4              {
+ 388   5                m-=1;
+ 389   5                n+=1;
+ 390   5                M1[Mct].coordX = m;
+ 391   5                M1[Mct].coordY = n;
+ 392   5              }
+ 393   4              else
+ 394   4              {
+ 395   5                n+=1;
+ 396   5                M1[Mct].coordX = m;
+ 397   5                M1[Mct].coordY = n;
+ 398   5                if((pixels_cg1[m-1][n]==1)||(pixels_cg1[m+1][n]==1))
+ 399   5                {
+ 400   6                  M2[Mct].coordX = m;
+ 401   6                  M2[Mct].coordY = n;
+ 402   6                }
+ 403   5                else
+ 404   5                {
+ 405   6                  M2[Mct].coordX = 0;
+ 406   6                  M2[Mct].coordY = 0;
+ 407   6                }
+ 408   5              }
+ 409   4              Mct++;
+ 410   4            }
+ 411   3            else if(pixels_cg1[m-1][n+1]==1)
+ 412   3            {
+ 413   4              if(pixels_cg1[m+1][n+1]==1)
+ 414   4              {
+ 415   5                if(((M1[Mct-2].coordX>m)&&(M1[Mct-2].coordY<n))||(((M1[Mct-2].coordX==m)&&(M1[Mct-2].coordY<n))&&((M1
+             -[Mct-3].coordX>m)&&(M1[Mct-3].coordY<n-1))&&(Mct>2)))
+ 416   5                {
+ 417   6                  m-=1;
+ 418   6                  n+=1;
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 8   
+
+ 419   6                  M1[Mct].coordX = m;
+ 420   6                  M1[Mct].coordY = n;
+ 421   6                  Mct++;
+ 422   6                }
+ 423   5                else
+ 424   5                {
+ 425   6                  m+=1;
+ 426   6                  n+=1;
+ 427   6                  M1[Mct].coordX = m;
+ 428   6                  M1[Mct].coordY = n;
+ 429   6                  Mct++;
+ 430   6                }
+ 431   5              }
+ 432   4              else
+ 433   4              {
+ 434   5                m-=1;
+ 435   5                n+=1;
+ 436   5                M1[Mct].coordX = m;
+ 437   5                M1[Mct].coordY = n;
+ 438   5                Mct++;
+ 439   5              }
+ 440   4            }
+ 441   3            else if(pixels_cg1[m+1][n+1]==1)
+ 442   3            {
+ 443   4              m+=1;
+ 444   4              n+=1;
+ 445   4              M1[Mct].coordX = m;
+ 446   4              M1[Mct].coordY = n;
+ 447   4              Mct++;
+ 448   4            }
+ 449   3            else if((pixels_cg1[m+1][n]==1)&&(pixels_cg1[m+2][n+1]==1))
+ 450   3            {
+ 451   4              m+=2;
+ 452   4              n+=1;
+ 453   4              M1[Mct].coordX = m;
+ 454   4              M1[Mct].coordY = n;
+ 455   4              Mct++;
+ 456   4            }
+ 457   3            else if((pixels_cg1[m-1][n]==1)&&(pixels_cg1[m-2][n+1]==1))
+ 458   3            {
+ 459   4              m-=2;
+ 460   4              n+=1;
+ 461   4              M1[Mct].coordX = m;
+ 462   4              M1[Mct].coordY = n;
+ 463   4              Mct++;
+ 464   4            }
+ 465   3            else
+ 466   3            {
+ 467   4              E1[j].coordX = m;
+ 468   4              E1[j].coordY = n;
+ 469   4              break;
+ 470   4            }
+ 471   3          }while((m>0)&&(m<31)&&(n<31));
+ 472   2          if((m==0)||(m==31)||(n==31))
+ 473   2          {
+ 474   3            E1[j].coordX = m;
+ 475   3            E1[j].coordY = n;
+ 476   3          }
+ 477   2          if(absC(E1[j].coordX,S1[j].coordX)>1)
+ 478   2          {
+ 479   3            nX=(E1[j].coordX+S1[j].coordX)/2;
+ 480   3          }
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 9   
+
+ 481   2          else 
+ 482   2          {
+ 483   3            nX=S1[j].coordX;
+ 484   3          }
+ 485   2          seedata = E1[j].coordX;
+ 486   2          seedata = S1[j].coordX;
+ 487   2          seedata = E1[j].coordY;
+ 488   2          seedata = S1[j].coordY;
+ 489   2          seedata = absC(E1[j].coordX,S1[j].coordX)*2;
+ 490   2          seedata = E1[j].coordY-S1[j].coordY;
+ 491   2          if((absC(E1[j].coordX,S1[j].coordX)*2)<(E1[j].coordY-S1[j].coordY))
+ 492   2          {
+ 493   3            for(ii=0;ii<Mct;ii++)
+ 494   3            {
+ 495   4              if((M1[ii].coordX==M2[ii].coordX)&&(M1[ii].coordY==M2[ii].coordY))
+ 496   4              {
+ 497   5                continue;
+ 498   5              }
+ 499   4              else
+ 500   4              {
+ 501   5                pixels_cg1[M1[ii].coordX][M1[ii].coordY] = 0;
+ 502   5              }
+ 503   4            }
+ 504   3            for(ii=S1[j].coordY;ii<(E1[j].coordY);ii++)
+ 505   3            {
+ 506   4              pixels_cg1[nX][ii] = 1;
+ 507   4            }
+ 508   3          }
+ 509   2        }
+ 510   1        
+ 511   1        //×ÝÏòÅÐ¶Ï
+ 512   1        i = 0;
+ 513   1        for(n = 1;n<31;n++)
+ 514   1        {
+ 515   2          for(m = 1;m<31;m++)
+ 516   2          {
+ 517   3            if(pixels_cg1[m][n]==1)
+ 518   3            {
+ 519   4              if((pixels_cg1[m-1][n]==0)&&(pixels_cg1[m-1][n-1]==0)&&(pixels_cg1[m-1][n+1]==0))//ÉÏ²àÎÞÓÐÐ§µã
+ 520   4              {
+ 521   5                if(((pixels_cg1[m][n-1]==1)&&(pixels_cg1[m-1][n-2]==1))||((pixels_cg1[m][n+1]==1)&&(pixels_cg1[m-1][n
+             -+2]==1)))//ÏòÉÏ»òÏòÏÂÁ¬Í¨
+ 522   5                {
+ 523   6                }
+ 524   5                else
+ 525   5                {
+ 526   6                  if((pixels_cg1[m+1][n]==1)||((pixels_cg1[m+1][n-1]==1)&&(pixels_cg1[m][n-1]==0))||((pixels_cg1[m+1][
+             -n+1]==1)&&(pixels_cg1[m][n+1]==0))) //ÏÂ²àÓÐÓÐÐ§µã
+ 527   6                  {
+ 528   7                    S1[i].coordX = m;
+ 529   7                    S1[i].coordY = n;
+ 530   7                    i++;
+ 531   7                    ////////¼ÇÂ¼¸÷¸öºáÏòÆðµãµÄ×ø±ê
+ 532   7                  }
+ 533   6                }
+ 534   5              }
+ 535   4            }
+ 536   3          }
+ 537   2        }
+ 538   1        Mct = Mct2=0;
+ 539   1        for(j=0;j<i;j++)    //¶ÔÓÚÃ¿¸öºáÏòµÄÆðµã
+ 540   1        {
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 10  
+
+ 541   2        Mct = Mct2=0;
+ 542   2          m=S1[j].coordX;
+ 543   2          n=S1[j].coordY;
+ 544   2          do
+ 545   2          {
+ 546   3            if(pixels_cg1[m+1][n]==1)
+ 547   3            {
+ 548   4              if((pixels_cg1[m+1][n+1]==1)&&
+ 549   4                (((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY<n))||
+ 550   4              ((Mct>2)&&((M1[Mct-2].coordX==m)&&(M1[Mct-2].coordY<n))&&((M1[Mct-3].coordX<m)&&(M1[Mct-3].coordY<n-1)
+             -))||
+ 551   4              ((Mct>2)&&((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY==n))&&((M1[Mct-3].coordX<m-1)&&(M1[Mct-3].coordY<n)
+             -))))
+ 552   4              {
+ 553   5                m+=1;
+ 554   5                n+=1;
+ 555   5                M1[Mct].coordX = m;
+ 556   5                M1[Mct].coordY = n;
+ 557   5              }
+ 558   4              else if((pixels_cg1[m+1][n-1]==1)&&
+ 559   4                (((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY>n))||
+ 560   4              ((Mct>2)&&((M1[Mct-2].coordX==m)&&(M1[Mct-2].coordY>n))&&((M1[Mct-3].coordX<m)&&(M1[Mct-3].coordY>n+1)
+             -))||
+ 561   4              ((Mct>2)&&((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY==n))&&((M1[Mct-3].coordX<m-1)&&(M1[Mct-3].coordY>n)
+             -))))
+ 562   4              {
+ 563   5                m+=1;
+ 564   5                n-=1;
+ 565   5                M1[Mct].coordX = m;
+ 566   5                M1[Mct].coordY = n;
+ 567   5              }
+ 568   4              else
+ 569   4              {
+ 570   5                m+=1;
+ 571   5                M1[Mct].coordX = m;
+ 572   5                M1[Mct].coordY = n;
+ 573   5                if((pixels_cg1[m][n-1]==1)||(pixels_cg1[m][n+1]==1))
+ 574   5                {
+ 575   6                  M2[Mct].coordX = m;
+ 576   6                  M2[Mct].coordY = n;
+ 577   6                }
+ 578   5                else
+ 579   5                {
+ 580   6                  M2[Mct].coordX = 0;
+ 581   6                  M2[Mct].coordY = 0;
+ 582   6                }
+ 583   5                Mct++;
+ 584   5              }
+ 585   4            }
+ 586   3            else if(pixels_cg1[m+1][n-1]==1)
+ 587   3            {
+ 588   4              if(pixels_cg1[m+1][n+1]==1)
+ 589   4              {
+ 590   5                if(((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY>n))||(((M1[Mct-2].coordX<m)&&(M1[Mct-2].coordY==n))&&((M1
+             -[Mct-3].coordX<m-1)&&(M1[Mct-3].coordY>n))&&(Mct>2)))
+ 591   5                {
+ 592   6                  n-=1;
+ 593   6                  m+=1;
+ 594   6                  M1[Mct].coordX = m;
+ 595   6                  M1[Mct].coordY = n;
+ 596   6                  Mct++;
+ 597   6                }
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 11  
+
+ 598   5                else
+ 599   5                {
+ 600   6                  m+=1;
+ 601   6                  n+=1;
+ 602   6                  M1[Mct].coordX = m;
+ 603   6                  M1[Mct].coordY = n;
+ 604   6                  Mct++;
+ 605   6                }
+ 606   5              }
+ 607   4              else
+ 608   4              {
+ 609   5                n-=1;
+ 610   5                m+=1;
+ 611   5                M1[Mct].coordX = m;
+ 612   5                M1[Mct].coordY = n;
+ 613   5                Mct++;
+ 614   5              }
+ 615   4            }
+ 616   3            else if(pixels_cg1[m+1][n+1]==1)
+ 617   3            {
+ 618   4              m+=1;
+ 619   4              n+=1;
+ 620   4              M1[Mct].coordX = m;
+ 621   4              M1[Mct].coordY = n;
+ 622   4              Mct++;
+ 623   4            }
+ 624   3            else if((pixels_cg1[m][n+1]==1)&&(pixels_cg1[m+1][n+2]==1))
+ 625   3            {
+ 626   4              m+=1;
+ 627   4              n+=2;
+ 628   4              M1[Mct].coordX = m;
+ 629   4              M1[Mct].coordY = n;
+ 630   4              Mct++;
+ 631   4            }
+ 632   3            else if((pixels_cg1[m][n-1]==1)&&(pixels_cg1[m+1][n-2]==1))
+ 633   3            {
+ 634   4              m+=1;
+ 635   4              n-=2;
+ 636   4              M1[Mct].coordX = m;
+ 637   4              M1[Mct].coordY = n;
+ 638   4              Mct++;
+ 639   4            }
+ 640   3            else
+ 641   3            {
+ 642   4              E1[j].coordX = m;
+ 643   4              E1[j].coordY = n;
+ 644   4              break;
+ 645   4            }
+ 646   3          }while((n>0)&&(n<31)&&(m<31));
+ 647   2          if((n==0)||(n==31)||(m==31))
+ 648   2          {
+ 649   3            E1[j].coordX = m;
+ 650   3            E1[j].coordY = n;
+ 651   3          }
+ 652   2          if(absC(E1[j].coordY,S1[j].coordY)>1)
+ 653   2          {
+ 654   3            nY=(E1[j].coordY+S1[j].coordY)/2;
+ 655   3          }
+ 656   2          else 
+ 657   2          {
+ 658   3            nY=S1[j].coordY;
+ 659   3          }
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 12  
+
+ 660   2          if((absC(E1[j].coordY,S1[j].coordY)*2)<(E1[j].coordX-S1[j].coordX))
+ 661   2          {
+ 662   3            for(ii=0;ii<Mct;ii++)
+ 663   3            {
+ 664   4              if((M1[ii].coordY=M2[ii].coordY)&&(M1[ii].coordX==M2[ii].coordX))
+ 665   4              {
+ 666   5                continue;
+ 667   5              }
+ 668   4              else
+ 669   4              {
+ 670   5                pixels_cg1[M1[ii].coordX][M1[ii].coordY] = 0;
+ 671   5              }
+ 672   4            }
+ 673   3            for(ii=S1[j].coordX;ii<(E1[j].coordX);ii++)
+ 674   3            {
+ 675   4              pixels_cg1[ii][nY] = 1;
+ 676   4            }
+ 677   3          }
+ 678   2        }
+ 679   1        for(m = 1;m<31;m++)
+ 680   1        {
+ 681   2          for(n = 1;n<31;n++)
+ 682   2          {
+ 683   3            if(pixels_cg1[m][n])
+ 684   3            {
+ 685   4              jj=1;
+ 686   4            }
+ 687   3          }
+ 688   2        }
+ 689   1        
+ 690   1        
+ 691   1        //¸ù¾Ý×Ö¼£ÓÐÐ§·¶Î§£¬½øÐÐ¶þ´ÎËõ·Å£¬ÖÁ16x16µãÕó
+ 692   1        ifblankX1=ifblankY1=32;
+ 693   1        ifblankX2=ifblankY2=0;
+ 694   1        for(i=0;i<32;i++)         //×ÔÉÏ¶øÏÂÉ¨Ãè
+ 695   1        {
+ 696   2          for(j=0;j<32;j++)
+ 697   2          {
+ 698   3            if(pixels_cg1[i][j])
+ 699   3            {
+ 700   4              ifblankX1=i;      //Ê¹·ÇÁã
+ 701   4              break;
+ 702   4            }
+ 703   3          }
+ 704   2          if(ifblankX1!=32) break;
+ 705   2        }
+ 706   1        for(i=31;i>0;i--)         //×ÔÏÂ¶øÉÏÉ¨Ãè
+ 707   1        {
+ 708   2          for(j=0;j<32;j++)
+ 709   2          {
+ 710   3            if(pixels_cg1[i][j])
+ 711   3            {
+ 712   4              ifblankX2=i;      //Ê¹·ÇÁã
+ 713   4              break;
+ 714   4            }
+ 715   3          }
+ 716   2          if(ifblankX2) break;
+ 717   2        }
+ 718   1        for(j=0;j<32;j++)         //×Ô×óÖÁÓÒÉ¨Ãè
+ 719   1        {
+ 720   2          for(i=0;i<32;i++)
+ 721   2          {
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 13  
+
+ 722   3            if(pixels_cg1[i][j])
+ 723   3            {
+ 724   4              ifblankY1=j;      //Ê¹·ÇÁã
+ 725   4              break;
+ 726   4            }
+ 727   3          }
+ 728   2          if(ifblankY1!=32) break;
+ 729   2        }
+ 730   1        for(j=31;j>0;j--)         //×ÔÓÒÖÁ×óÉ¨Ãè
+ 731   1        {
+ 732   2          for(i=0;i<32;i++)
+ 733   2          {
+ 734   3            if(pixels_cg1[i][j])
+ 735   3            {
+ 736   4              ifblankY2=j;      //Ê¹·ÇÁã
+ 737   4              break;
+ 738   4            }
+ 739   3          }
+ 740   2          if(ifblankY2) break;
+ 741   2        }
+ 742   1        
+ 743   1      //  ¹ì¼£Ëõ·Å£¬Ëõ·Åµ½32µãÕóÖÐ
+ 744   1        squarxx=ifblankX2-ifblankX1+1;      //ÓÐÐ§·½Õó¸ß¶È
+ 745   1        squaryy=ifblankY2-ifblankY1+1;      //ÓÐÐ§·½Õó¿í¶È
+ 746   1        if(squarxx>squaryy)
+ 747   1        {
+ 748   2          squarxy = squarxx;
+ 749   2          Pmove1.coordX = ifblankX1;
+ 750   2          if(ifblankY1>((squarxx-squaryy)/2))
+ 751   2          {
+ 752   3            Pmove1.coordY = ifblankY1-(squarxx-squaryy)/2;    //Êµ¼ÊµãÕóµÄ×óÉÏ½Ç×ø±ê
+ 753   3          }
+ 754   2          else Pmove1.coordY = 0;
+ 755   2        }
+ 756   1        else
+ 757   1        {
+ 758   2          squarxy = squaryy;
+ 759   2          if(ifblankX1>((squaryy-squarxx)/2))
+ 760   2          {
+ 761   3            Pmove1.coordX = ifblankX1-(squaryy-squarxx)/2;
+ 762   3          }
+ 763   2          else Pmove1.coordX = 0;
+ 764   2          Pmove1.coordY = ifblankY1;    //Êµ¼ÊµãÕóµÄ×óÉÏ½Ç×ø±ê
+ 765   2        }
+ 766   1        for(i=0;i<32;i++)
+ 767   1        {
+ 768   2          for(j=0;j<32;j++)
+ 769   2          {
+ 770   3            pixels_cg2[i][j]=0;
+ 771   3            pixels_cg3[i][j]=0;
+ 772   3          }
+ 773   2          
+ 774   2        }
+ 775   1        for(m = 1;m<31;m++)
+ 776   1        {
+ 777   2          for(n = 1;n<31;n++)
+ 778   2          {
+ 779   3            if(pixels_cg1[m][n])
+ 780   3            {
+ 781   4              jj=1;
+ 782   4              pixels_cg2[m-Pmove1.coordX][n-Pmove1.coordY] = 1;
+ 783   4            }
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 14  
+
+ 784   3          }
+ 785   2        }
+ 786   1        for(i=0;i<32;i++)
+ 787   1        {
+ 788   2          for(j=0;j<32;j++)
+ 789   2          {
+ 790   3            if(pixels_cg2[i][j])
+ 791   3            {
+ 792   4              seedata = 0;
+ 793   4            }
+ 794   3          }
+ 795   2          
+ 796   2        }
+ 797   1        
+ 798   1        for(i=0;i<16;i++)
+ 799   1        {
+ 800   2          for(j=0;j<16;j++)
+ 801   2          {
+ 802   3            pixels_cg4[i][j]=0;
+ 803   3          }
+ 804   2          
+ 805   2        }
+ 806   1        for(m = 1;m<squarxy-1;m++)
+ 807   1        {
+ 808   2          if(pixels_cg2[m][0])
+ 809   2            {
+ 810   3              pixels_cg4[m*16/squarxy][0] = 1;
+ 811   3            }
+ 812   2        }
+ 813   1        for(n = 1;n<squarxy-1;n++)
+ 814   1        {
+ 815   2          if(pixels_cg2[0][n])
+ 816   2            {
+ 817   3              pixels_cg4[0][n*16/squarxy] = 1;
+ 818   3            }
+ 819   2        }
+ 820   1        for(m = 1;m<squarxy-1;m++)
+ 821   1        {
+ 822   2          for(n = 1;n<squarxy-2;n++)
+ 823   2          {
+ 824   3            if(pixels_cg2[m][n])
+ 825   3            {
+ 826   4              pixels_cg4[m*16/squarxy][n*16/squarxy] = 1;
+ 827   4              //µãÕóÐÅÏ¢·Å´ó£¬Á½µãÖ®¼ä²åÖµ
+ 828   4              if(pixels_cg2[m-1][n+1])                  //ÓÒÉÏ½ÇÓÐÐ§µã²åÖµ
+ 829   4              {
+ 830   5                if((m*16/squarxy-(m-1)*16/squarxy)>1)
+ 831   5                {
+ 832   6                  for(i=0;i<(m*16/squarxy-(m-1)*16/squarxy);i++)
+ 833   6                  {
+ 834   7                    pixels_cg4[m*16/squarxy-i][n*16/squarxy+i] = 1;
+ 835   7                  }
+ 836   6                }
+ 837   5              }
+ 838   4              if(pixels_cg2[m-1][n])                  //ÕýÉÏ·½ÓÐÐ§µã²åÖµ
+ 839   4              {
+ 840   5                if((m*16/squarxy-(m-1)*16/squarxy)>1)
+ 841   5                {
+ 842   6                  for(i=0;i<(m*16/squarxy-(m-1)*16/squarxy);i++)
+ 843   6                  {
+ 844   7                    pixels_cg4[m*16/squarxy-i][n] = 1;
+ 845   7                  }
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 15  
+
+ 846   6                }
+ 847   5              }
+ 848   4              if(pixels_cg2[m-1][n-1])                  //×óÉÏ·½ÓÐÐ§µã²åÖµ
+ 849   4              {
+ 850   5                if((m*16/squarxy-(m-1)*16/squarxy)>1)
+ 851   5                {
+ 852   6                  for(i=0;i<(m*16/squarxy-(m-1)*16/squarxy);i++)
+ 853   6                  {
+ 854   7                    pixels_cg4[m*16/squarxy-i][n*16/squarxy-i] = 1;
+ 855   7                  }
+ 856   6                }
+ 857   5              }
+ 858   4              if(pixels_cg2[m][n-1])                  //Õý×ó·½ÓÐÐ§µã²åÖµ
+ 859   4              {
+ 860   5                if((n*16/squarxy-(n-1)*16/squarxy)>1)
+ 861   5                {
+ 862   6                  for(i=0;i<(n*16/squarxy-(n-1)*16/squarxy);i++)
+ 863   6                  {
+ 864   7                    pixels_cg4[m][n*16/squarxy-i] = 1;
+ 865   7                  }
+ 866   6                }
+ 867   5              }
+ 868   4            }
+ 869   3          }
+ 870   2        }
+ 871   1        
+ 872   1        for(i=0;i<16;i++)
+ 873   1        {
+ 874   2          for(j=0;j<16;j++)
+ 875   2          {
+ 876   3            if(pixels_cg3[i][j])
+ 877   3            {
+ 878   4              pixels_cg4[i/2][j/2] = 1;
+ 879   4            }
+ 880   3          }
+ 881   2          
+ 882   2        }
+ 883   1      ////////  for(i=0;i<16;i++)
+ 884   1      ////////  {
+ 885   1      ////////    for(j=0;j<16;j++)
+ 886   1      ////////    {
+ 887   1      ////////      if(pixels_cg4[i][j])
+ 888   1      ////////      {
+ 889   1      ////////      seedata= pixels_cg4[i][j];
+ 890   1      ////////      }
+ 891   1      ////////    }
+ 892   1      ////////    
+ 893   1      ////////  }
+ 894   1        feature_extraction(pixels_cg4[0],charact_value,16);
+ 895   1        *buf++ = charact_value[0];
+ 896   1        *buf++ = charact_value[1];
+ 897   1        *buf++ = charact_value[2];
+ 898   1        *buf++ = charact_value[3];
+ 899   1      //    read_ram_vp(0x8000,ramdata_rd,52);
+ 900   1      //    write_dgus_vp_tp(TEST_VP1,ramdata_rd,5);
+ 901   1      }
+*** WARNING C280 IN LINE 283 OF ORC.C: 'i1': unreferenced local variable
+*** WARNING C280 IN LINE 283 OF ORC.C: 'i2': unreferenced local variable
+*** WARNING C280 IN LINE 283 OF ORC.C: 'j1': unreferenced local variable
+*** WARNING C280 IN LINE 283 OF ORC.C: 'j2': unreferenced local variable
+ 902          
+ 903          void   Read_Gbkdata(u16* buf)
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 16  
+
+ 904          {
+ 905   1        data u32  Word_addr=0;
+ 906   1         u32  Word_addr_base1,Word_addr_base=0;
+ 907   1        u8    Word_save_bank,i;
+ 908   1        data u8 test[2];
+ 909   1        data u8   readFlash_CMD[12] = {0x5A,0x01,0x10,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+ 910   1        data s16  charact_value2[4]={0};
+ 911   1        data s16  charact_value3[4]={0};
+ 912   1        data  s32  calcu;
+ 913   1        data  u32  addrsee;
+ 914   1      //  if(ReadGb.Index[0]<0xB0)
+ 915   1      //  {
+ 916   1      //    ReadGb.Index[0] = 0xB0;
+ 917   1      //    ReadGb.Index[1] = 0xA1;
+ 918   1      //  }
+ 919   1      // // // //   µ±GBKL<0X7F Ê±£ºHp=((GBKH-0x81)¡Á190+GBKL-0X40)¡Á(sizex2)£»
+ 920   1      
+ 921   1      // // // //   µ±GBKL>0X80 Ê±£ºHp=((GBKH-0x81)¡Á190+GBKL-0X41)¡Á(sizex2)£»
+ 922   1        for(ReadGb.Index[0]=0xB0;ReadGb.Index[0]<=0xB2;ReadGb.Index[0]++)
+ 923   1        {
+ 924   2          Word_addr_base1=Word_addr_base = ((u32)(ReadGb.Index[0]-0x81)*190+0xA1-0x41)*16;  
+ 925   2          if(Word_addr_base>0x3FFFF)                      //256KBÎªÒ»¸ö×Ö¿â
+ 926   2            {
+ 927   3              Word_save_bank = 2;
+ 928   3            }
+ 929   2            else if(Word_addr_base>0x1FFFF)
+ 930   2            {
+ 931   3              Word_save_bank = 1;
+ 932   3            }
+ 933   2            else
+ 934   2            {
+ 935   3              Word_save_bank = 0;
+ 936   3            }
+ 937   2            Word_addr_base = Word_addr_base - 0x20000*Word_save_bank;
+ 938   2            readFlash_CMD[2] = Word_save_bank+0x10;
+ 939   2            readFlash_CMD[3] = (u8)(Word_addr_base>>16);
+ 940   2            Word_addr_base&=0xFFFF;
+ 941   2            readFlash_CMD[4] = (u8)(Word_addr_base>>8);
+ 942   2            readFlash_CMD[5] = (u8)(Word_addr_base&0xff);
+ 943   2            readFlash_CMD[6] = 0x70;
+ 944   2            readFlash_CMD[7] = 0x00;
+ 945   2            readFlash_CMD[8] = 0x06;
+ 946   2            readFlash_CMD[9] = 0x00;
+ 947   2            readFlash_CMD[10] = 0;
+ 948   2            write_dgus_vp(0x00AA,readFlash_CMD,6);
+ 949   2            do
+ 950   2              {
+ 951   3              read_dgus_vp(0x00AA,readFlash_CMD,1);
+ 952   3              }while(readFlash_CMD[0]==0x5A);
+ 953   2          for(ReadGb.Index[1]=0xA1;ReadGb.Index[1]<=0xFE;ReadGb.Index[1]++)
+ 954   2          {
+ 955   3            test[0]=ReadGb.Index[0];
+ 956   3            test[1]=ReadGb.Index[1];
+ 957   3      //      Word_addr_base1=Word_addr_base = ((u32)(ReadGb.Index[0]-0x81)*190+0xA1-0x41)*16;  
+ 958   3            Word_addr = ((u32)((ReadGb.Index[0]-0x81)*190+ReadGb.Index[1]-0x41))*16;    //¼ÆËãGBKÂëÆ«ÒÆµØÖ·
+ 959   3            addrsee = Word_addr - Word_addr_base1+0x7000;
+ 960   3             read_dgus_vp(addrsee,ReadGb.Msk,16);
+ 961   3              GbkDatadeal(ReadGb.Msk);
+ 962   3              feature_extraction(Gbk_XY[0],charact_value2,16);
+ 963   3              for(i = 0;i<4;i++)
+ 964   3              {
+ 965   4                charact_value3[i]=tese_p[i]-charact_value2[i];
+C51 COMPILER V9.50a   ORC                                                                  08/27/2019 16:41:24 PAGE 17  
+
+ 966   4                if(charact_value3[i]<0)charact_value3[i]=0-charact_value3[i];
+ 967   4              }
+ 968   3              
+ 969   3              calcu=(charact_value3[0]*charact_value3[0]+charact_value3[1]*charact_value3[1]+charact_value3[2]*chara
+             -ct_value3[2]+charact_value3[3]*charact_value3[3]);
+ 970   3              i++;
+ 971   3              //        *buf++ = charact_value2[0];
+ 972   3      //        *buf++ = charact_value2[1];
+ 973   3      //        *buf++ = charact_value2[2];
+ 974   3      //        *buf++ = charact_value2[3];
+ 975   3              
+ 976   3          }
+ 977   2        }
+ 978   1      }
+*** WARNING C280 IN LINE 903 OF ORC.C: 'buf': unreferenced local variable
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =  12553    ----
+   CONSTANT SIZE    =   3574    ----
+   XDATA SIZE       =    292    4673
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----     104
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  5 WARNING(S),  0 ERROR(S)

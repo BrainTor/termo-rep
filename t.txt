@@ -1,0 +1,1 @@
+srec_cat.exe main.hex -Intel -o T5L51.bin -Binary

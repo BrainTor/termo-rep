@@ -1,0 +1,371 @@
+C51 COMPILER V9.50a   TP_DRAW                                                              08/27/2019 16:41:23 PAGE 1   
+
+
+C51 COMPILER V9.50a, COMPILATION OF MODULE TP_DRAW
+OBJECT MODULE PLACED IN .\obj\TP_draw.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE TP_draw.c LARGE OBJECTADVANCED BROWSE INCDIR(..\T5L51) DEBUG PRINT(.\Listin
+                    -gs\TP_draw.lst) TABS(2) OBJECT(.\obj\TP_draw.obj)
+
+line level    source
+
+   1          /******************************************************************************
+   2          
+   3                            版权所有 (C), 2019, 北京迪文科技有限公司
+   4          
+   5           ******************************************************************************
+   6            文 件 名   : TP_draw.c
+   7            版 本 号   : V1.0
+   8            作    者   : ad
+   9            生成日期   : 2019年6月19日
+  10            功能描述   : 手写输入法
+  11            修改历史   :
+  12            1.日    期   : 
+  13              作    者   : 
+  14              修改内容   : 
+  15          ******************************************************************************/
+  16          
+  17          #include "sys.h"
+  18          #include "math.h"
+  19          #include "stdlib.h"
+  20          #include "string.h"
+  21          #include "config.h"
+  22          #include "control.h"
+  23          #include "TP_draw.h"
+  24          
+  25          u8 sx[] = {0};
+  26          u16   sxi = 1;
+  27          u16 xdata  *Coord_in;
+  28          u8   Coord_XY[16][16] = {0};
+  29          u8   Gbk_XY[16][16] = {0};
+  30          u8   ramdata_rd[40];
+  31          
+  32            data s16 tese_p[4]={0};
+  33          u8  code  Sx_Cmd_Code[16] = {0x5A,0x01,0x00,0x00,0x05,0xFF,0x00,0x00,0x00,0x10,0x00,0x10,0x00,0xc8,0x00,0x
+             -c8};
+  34          u8  code  Gbk_san[32] = {0,0,0,0,0x7F,0xFC,0,0,0,0,0,0,0,0,0x3F,0xF8,
+  35                                0,0,0,0,0,0,0,0,0,0,0x7F,0xFE,0,0,0,0};
+  36          void write_dgus_vp_tp(u32 addr,u8* buf,u16 len)
+  37          {
+  38   1          u32 OS_addr=0,OS_addr_offset=0;
+  39   1          u16 OS_len=0,OS_len_offset=0;
+  40   1          EA=0;
+  41   1          OS_addr=addr/2;
+  42   1          OS_addr_offset=addr%2; 
+  43   1          ADR_H=(u8)(OS_addr>>16)&0xFF;
+  44   1          ADR_M=(u8)(OS_addr>>8)&0xFF;
+  45   1          ADR_L=(u8)OS_addr&0xFF;
+  46   1          ADR_INC=0x01;                 //DGUS  OS存储器地址在读写后自动加1
+  47   1          RAMMODE=0x8F;               //启动写模式 
+  48   1          if(OS_addr_offset==1)
+  49   1          {
+  50   2              ADR_INC=0;
+  51   2              RAMMODE=0xAF;
+  52   2              while(APP_ACK==0);
+  53   2              APP_EN=1;
+C51 COMPILER V9.50a   TP_DRAW                                                              08/27/2019 16:41:23 PAGE 2   
+
+  54   2              while(APP_EN==1);       //读写执行结束
+  55   2              ADR_INC=0x01; 
+  56   2              RAMMODE=0x8F;
+  57   2              while(APP_ACK==0);      
+  58   2              DATA1=*buf++;
+  59   2              DATA0=*buf++;
+  60   2              APP_EN=1;
+  61   2              while(APP_EN==1);       //读写执行结束
+  62   2              len--;
+  63   2              OS_addr_offset=0;
+  64   2          }
+  65   1          OS_len=len/2;
+  66   1          OS_len_offset=len%2; 
+  67   1          if(OS_len_offset==1)
+  68   1          {
+  69   2               OS_len++;
+  70   2          }
+  71   1          while(OS_len--)
+  72   1          {
+  73   2              if((OS_len_offset==1)&&(OS_len==0))
+  74   2              {
+  75   3                  ADR_INC=0;
+  76   3                  RAMMODE=0xAF;
+  77   3                  while(APP_ACK==0);
+  78   3                  APP_EN=1;                //增加一个读过程，以免写单字时会将另一个单字写0
+  79   3                  while(APP_EN==1);       //读写执行结束
+  80   3                  ADR_INC=0x01;
+  81   3                  RAMMODE=0x8F;
+  82   3                  while(APP_ACK==0);           
+  83   3                  DATA3=*buf++;
+  84   3                  DATA2=*buf++;
+  85   3                  APP_EN=1;
+  86   3                  while(APP_EN==1);       //读写执行结束
+  87   3                  break;
+  88   3              }
+  89   2              while(APP_ACK==0);        
+  90   2              DATA3=*buf++;
+  91   2              DATA2=*buf++;
+  92   2              DATA1=*buf++;
+  93   2              DATA0=*buf++;
+  94   2              APP_EN=1;
+  95   2              while(APP_EN==1);       //读写执行结束
+  96   2          } 
+  97   1          RAMMODE=0x00;       //读写完成后RAMMODE必须置零
+  98   1          EA=1;  
+  99   1        return;
+ 100   1      }  
+ 101          
+ 102          void read_dgus_vp_tp(u32 addr,u8* buf,u16 len)
+ 103          {
+ 104   1          u32 OS_addr=0,OS_addr_offset=0;
+ 105   1          u16 OS_len=0,OS_len_offset=0;
+ 106   1          OS_addr=addr/2;
+ 107   1          OS_addr_offset=addr%2;
+ 108   1          ADR_H=(u8)(OS_addr>>16)&0xFF;
+ 109   1          ADR_M=(u8)(OS_addr>>8)&0xFF;
+ 110   1          ADR_L=(u8)OS_addr&0xFF;
+ 111   1          ADR_INC=1;                 //DGUS  OS存储器地址在读写后自动加1
+ 112   1          RAMMODE=0xAF;               //启动读模式
+ 113   1          if(OS_addr_offset==1)       //首地址有偏移，修正
+ 114   1          {
+ 115   2              while(APP_ACK==0);      //等待
+C51 COMPILER V9.50a   TP_DRAW                                                              08/27/2019 16:41:23 PAGE 3   
+
+ 116   2              APP_EN=1;
+ 117   2              while(APP_EN==1); 
+ 118   2              *buf++=DATA1;
+ 119   2              *buf++=DATA0;              
+ 120   2              len--;
+ 121   2              OS_addr_offset=0;
+ 122   2          }
+ 123   1          OS_len=len/2;
+ 124   1          OS_len_offset=len%2;
+ 125   1          if(OS_len_offset==1)
+ 126   1          {
+ 127   2               OS_len++;
+ 128   2          }
+ 129   1          while(OS_len--)
+ 130   1          {
+ 131   2              if((OS_len_offset==1)&&(OS_len==0))
+ 132   2              {          
+ 133   3                  while(APP_ACK==0);
+ 134   3                  APP_EN=1;
+ 135   3                  while(APP_EN==1);       //读写执行结束
+ 136   3                  *buf++=DATA3;
+ 137   3                  *buf++=DATA2;           
+ 138   3                  break;    
+ 139   3              } 
+ 140   2              while(APP_ACK==0);
+ 141   2              APP_EN=1;
+ 142   2              while(APP_EN==1);       //读写执行结束 
+ 143   2              *buf++=DATA3;
+ 144   2              *buf++=DATA2;
+ 145   2              *buf++=DATA1;
+ 146   2              *buf++=DATA0;                          
+ 147   2          }   
+ 148   1          RAMMODE=0x00;           //读写完成后RAMMODE必须置零
+ 149   1        return; 
+ 150   1      }
+ 151          
+ 152          // void read_ram_fun(u32 addr,u8* buf,u16 len)
+ 153          // {
+ 154          //  
+ 155          // }
+ 156          void read_ram_vp(u32 addr,u8 *buf,u32 len)
+ 157          {   
+ 158   1      //     addr=addr/2;
+ 159   1          ADR_H=0x00;
+ 160   1          ADR_M=(unsigned char)(addr>>8);
+ 161   1          ADR_L=(unsigned char)(addr);
+ 162   1          ADR_INC=0x01;
+ 163   1          RAMMODE=0xAF;
+ 164   1        while(APP_ACK==0);
+ 165   1        while(len>0)
+ 166   1      {   APP_EN=1;
+ 167   2          while(APP_EN==1);
+ 168   2          if(len>0)   
+ 169   2          {   *buf++=DATA0;
+ 170   3              *buf++=DATA1;   
+ 171   3              *buf++=DATA2;
+ 172   3              *buf++=DATA3;     
+ 173   3          len--;  }
+ 174   2        }
+ 175   1        RAMMODE=0x00;}
+ 176          // void  coord_rank(u16 num, u8* buf_insert)
+ 177          // {
+C51 COMPILER V9.50a   TP_DRAW                                                              08/27/2019 16:41:23 PAGE 4   
+
+ 178          // //   u16  *P;
+ 179          //  u16  pre,pre2,aft,aft2,i,j,num1;
+ 180          // //   *P = *buf;
+ 181          //  num1 = num*2;
+ 182          //  for(i=0;i<(num-1);i=i+1)
+ 183          //  {
+ 184          //    if((Coord_in[i][0]<=buf_insert[0])&&(buf_insert[0]<=Coord_in[i+1][0]))
+ 185          //    {
+ 186          //      if(((Coord_in[i+1][0]==buf_insert[0])&&(buf_insert[1]<=Coord_in[i+1][1]))||(buf_insert[0]<Coord_in[i
+             -+1][0]))
+ 187          //      {
+ 188          //        pre = Coord_in[i+1][0];
+ 189          //        pre2 = Coord_in[i+1][1];
+ 190          //        Coord_in[i+1][0] = buf_insert[0];
+ 191          //        Coord_in[i+1][1] = buf_insert[1];
+ 192          //        i=i+2;
+ 193          //        break;
+ 194          //      }
+ 195          //      
+ 196          //    }
+ 197          //    else if(Coord_in[i][0]>buf_insert[0])
+ 198          //    {
+ 199          //      pre = Coord_in[i][0];
+ 200          //      pre2 = Coord_in[i][1];
+ 201          //      Coord_in[i][0] = buf_insert[0];
+ 202          //      Coord_in[i][1] = buf_insert[1];
+ 203          //      break;
+ 204          //    }
+ 205          //  }
+ 206          //  for(j = i;j<(num-1) ;j=j+1)
+ 207          //  {
+ 208          //    aft = Coord_in[i+1][0];
+ 209          //    aft2 =  Coord_in[i+1][1];
+ 210          //     Coord_in[i+1][0] = pre;
+ 211          //     Coord_in[i+1][1]= pre2;
+ 212          //    pre = aft;
+ 213          //    pre2 = aft2;
+ 214          //  }
+ 215          // }
+ 216          u16  CosCalcu(u8* buf,u8* buf2)
+ 217          {
+ 218   1        u16  i,j,k;
+ 219   1        u16  sumXY,sumXX,sumYY,Cos;
+ 220   1        sumXY = 0;
+ 221   1        sumXX = 0;
+ 222   1        sumYY = 0;
+ 223   1        for(i = 0;i<256;i++)
+ 224   1        {
+ 225   2          sumXY+= buf[i]*buf2[i];
+ 226   2        }
+ 227   1        for(j = 0;j<256;j++)
+ 228   1        {
+ 229   2          sumXX+= buf[i]*buf[i];
+ 230   2        }
+ 231   1        for(k = 0;k<256;k++)
+ 232   1        {
+ 233   2          sumYY+= buf2[i]*buf2[i];
+ 234   2        }
+ 235   1        Cos = sumXY/(sqrt(sumXX)*sqrt(sumYY));
+ 236   1        return Cos;
+ 237   1      }
+ 238          void GbkDatadeal(u8* buf)
+C51 COMPILER V9.50a   TP_DRAW                                                              08/27/2019 16:41:23 PAGE 5   
+
+ 239          {
+ 240   1        u8 xx,yy,ct;
+ 241   1        data  u16 bufdata;
+ 242   1        for(ct = 0;ct<32;ct=ct+2)
+ 243   1        {
+ 244   2          
+ 245   2          for(xx = 0;xx<16;xx++)
+ 246   2          {
+ 247   3            bufdata = (u16)(buf[xx*2])<<8|buf[xx*2+1];
+ 248   3            for(yy = 0;yy<16;yy++)
+ 249   3            {
+ 250   4              if(bufdata&0x8000)
+ 251   4              {
+ 252   5                Gbk_XY[xx][yy]=1;
+ 253   5              }
+ 254   4              else
+ 255   4              {
+ 256   5                Gbk_XY[xx][yy]=0;
+ 257   5              }
+ 258   4                bufdata = bufdata<<1;
+ 259   4            }
+ 260   3          }
+ 261   2        }
+ 262   1        
+ 263   1      }
+ 264          void TP_drawin(void)
+ 265          {
+ 266   1          
+ 267   1        u16 page,j,k;
+ 268   1        u8  Tp_ss[8] = {0};
+ 269   1      //  data u16 tese_p[4]={0};
+ 270   1        data u16 tese_g[4]={0};
+ 271   1      //  u8  *p;
+ 272   1        u8  XX[2]= {0};
+ 273   1      
+ 274   1          read_dgus_vp_tp(SX_START,(u8*)&page,1);
+ 275   1          if(page == 1)
+ 276   1          {
+ 277   2            page =2;
+ 278   2            write_dgus_vp_tp(SX_START,(u8*)&page,1);
+ 279   2            write_dgus_vp_tp(0x00F4,(u8*)&Sx_Cmd_Code,8);
+ 280   2          }
+ 281   1          else if (page == 2)
+ 282   1          {
+ 283   2            read_dgus_vp_tp(TP_STATUS,Tp_ss,4);
+ 284   2            if(Tp_ss[0]==0x5A)
+ 285   2            {
+ 286   3              Tp_ss[0]= 0 ;
+ 287   3              write_dgus_vp_tp(TP_STATUS,Tp_ss,1);
+ 288   3      //          delay_ms(5);
+ 289   3              if((Tp_ss[1]==0x03))
+ 290   3              {
+ 291   4                
+ 292   4                XX[0] = (u8)((((u16)Tp_ss[2]<<8)|Tp_ss[3])*16/480);
+ 293   4      
+ 294   4                XX[1]= (u8)((((u16)Tp_ss[4]<<8)|Tp_ss[5])*16/480);
+ 295   4      
+ 296   4                Coord_XY[XX[1]][XX[0]] = 1;
+ 297   4      //          pin = &Coord_XY[0][0];
+ 298   4      //          write_dgus_vp_tp(TEST_VP1,XX,1);
+ 299   4      //          write_dgus_vp_tp(TEST_VP3,Coord_XY[0],3);
+ 300   4              }
+C51 COMPILER V9.50a   TP_DRAW                                                              08/27/2019 16:41:23 PAGE 6   
+
+ 301   3            }
+ 302   2            
+ 303   2          }
+ 304   1          
+ 305   1          else if (page == 3)
+ 306   1          {
+ 307   2            page =0;
+ 308   2            write_dgus_vp_tp(SX_START,(u8*)&page,1);
+ 309   2            GbkDatadeal(Gbk_san);
+ 310   2      //      cosnum = CosCalcu(Coord_XY[0],Gbk_XY[0])*100;
+ 311   2      //      
+ 312   2      //          write_dgus_vp_tp(TEST_VP2,(u8*)&cosnum,1);
+ 313   2            coordinate_transf(tese_p,200,200);
+ 314   2                write_dgus_vp_tp(TEST_VP1,(u8*)&tese_p[0],4);
+ 315   2            Read_Gbkdata(tese_g);
+ 316   2          }
+ 317   1          else
+ 318   1          {
+ 319   2            sxi = 1;
+ 320   2            for(k=0;k<16;k++)
+ 321   2            {
+ 322   3                for(j = 0;j<16;j++)
+ 323   3              {
+ 324   4                Coord_XY[k][j] = 0;
+ 325   4              }
+ 326   3            }
+ 327   2          }
+ 328   1      //    read_ram_vp(0x8003,ramdata_rd,10);
+ 329   1      //    write_dgus_vp_tp(TEST_VP1,ramdata_rd,5);
+ 330   1      }
+ 331          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2456    ----
+   CONSTANT SIZE    =     66    ----
+   XDATA SIZE       =    557      88
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      8      10
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
