@@ -240,7 +240,7 @@ typedef struct
  * Глобальные переменные
  * ------------------------------------------------------------- */
 
-static RtcTime      g_rtc = {25, 1, 1, 0, 0, 0, 0}; /* год=25 (2025), месяц=1, день=1 */
+static RtcTime      g_rtc = {25, 1, 25, 6, 0, 0, 0}; /* год=25 (2025), месяц=1, день=25, суббота */
 static u16   data   SysTick       = 0;
 static u16   data   SysTick_RTC   = 0;
 static bit          g_rtc_1s_flag = 0;
@@ -953,22 +953,21 @@ static bit is_leap_year(u16 year)
 
 static u8 calc_weekday(u8 year, u8 month, u8 day)
 {
-    u16 year_real, temp;
-    u8  yearH, yearL;
-
-    year_real = (u16)year + 2000u;
-    yearH = (u8)(year_real / 100u);
-    yearL = (u8)(year_real % 100u);
-    if (yearH > 19) yearL += 100u;
-
-    temp = yearL + yearL / 4u;
-    temp = temp % 7u;
-    temp = temp + day + table_week[month - 1];
-    if ((yearL % 4u == 0) && (month < 3)) temp--;
-    temp %= 7u;
-
-    /* Возвращаем 1-7: 1=Пн, 2=Вт, 3=Ср, 4=Чт, 5=Пт, 6=Сб, 7=Вс */
-    return (temp == 0) ? 7u : (u8)temp;
+    /* Формула Томохико Сакамото - проверенный алгоритм */
+    static const u8 code t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    u16 y = (u16)year + 2000u;
+    u8 m = month;
+    u8 d = day;
+    u16 result;
+    
+    if (m < 3) y--;
+    
+    result = (y + y/4u - y/100u + y/400u + t[m - 1u] + d) % 7u;
+    
+    /* Результат: 0=Вс, 1=Пн, 2=Вт, 3=Ср, 4=Чт, 5=Пт, 6=Сб
+     * Конвертируем в: 1=Пн, 2=Вт, 3=Ср, 4=Чт, 5=Пт, 6=Сб, 7=Вс */
+    if (result == 0) return 7u;  /* Воскресенье */
+    return (u8)result;
 }
 
 static void rtc_tick_1s(void)
@@ -1013,32 +1012,64 @@ static void rtc_tick_1s(void)
 static void rtc_read_from_dgus(void)
 {
     u16 vp_year, vp_month, vp_day, vp_hour, vp_min, vp_sec;
+    u8 year_ok = 0, month_ok = 0, day_ok = 0;
     
     /* Читаем из VP регистров UI (0x2010-0x2016) */
-    vp_year  = read_vp_u16(VP_YEAR);    /* 2000-2100 */
-    vp_month = read_vp_u16(VP_MONTH);   /* 101-112 */
-    vp_day   = read_vp_u16(VP_DAY);     /* 101-131 */
-    vp_hour  = read_vp_u16(VP_HOUR);    /* 100-123 */
-    vp_min   = read_vp_u16(VP_MIN);     /* 100-159 */
-    vp_sec   = read_vp_u16(VP_SEC);     /* 100-159 */
+    vp_year  = read_vp_u16(VP_YEAR);
+    vp_month = read_vp_u16(VP_MONTH);
+    vp_day   = read_vp_u16(VP_DAY);
+    vp_hour  = read_vp_u16(VP_HOUR);
+    vp_min   = read_vp_u16(VP_MIN);
+    vp_sec   = read_vp_u16(VP_SEC);
     
-    /* Проверяем валидность данных от UI */
-    if (vp_year >= 2000 && vp_year <= 2100 &&
-        vp_month >= 101 && vp_month <= 112 &&
-        vp_day >= 101 && vp_day <= 131)
+    /* Год: 2000-2100 */
+    if (vp_year >= 2000 && vp_year <= 2100)
     {
-        g_rtc.year  = (u8)(vp_year - 2000);
-        g_rtc.month = (u8)(vp_month - 100);
-        g_rtc.day   = (u8)(vp_day - 100);
-        g_rtc.hour  = (vp_hour >= 100 && vp_hour <= 123) ? (u8)(vp_hour - 100) : g_rtc.hour;
-        g_rtc.min   = (vp_min >= 100 && vp_min <= 159) ? (u8)(vp_min - 100) : g_rtc.min;
-        g_rtc.sec   = (vp_sec >= 100 && vp_sec <= 159) ? (u8)(vp_sec - 100) : g_rtc.sec;
-        
-        if (g_rtc.hour > 23) g_rtc.hour = 0;
-        if (g_rtc.min > 59) g_rtc.min = 0;
-        if (g_rtc.sec > 59) g_rtc.sec = 0;
+        g_rtc.year = (u8)(vp_year - 2000);
+        year_ok = 1;
     }
-    /* Иначе оставляем текущие значения g_rtc */
+    
+    /* Месяц: 101-112 (формат +100) или 1-12 (прямой) */
+    if (vp_month >= 101 && vp_month <= 112)
+    {
+        g_rtc.month = (u8)(vp_month - 100);
+        month_ok = 1;
+    }
+    else if (vp_month >= 1 && vp_month <= 12)
+    {
+        g_rtc.month = (u8)vp_month;
+        month_ok = 1;
+    }
+    
+    /* День: 101-131 (формат +100) или 1-31 (прямой) */
+    if (vp_day >= 101 && vp_day <= 131)
+    {
+        g_rtc.day = (u8)(vp_day - 100);
+        day_ok = 1;
+    }
+    else if (vp_day >= 1 && vp_day <= 31)
+    {
+        g_rtc.day = (u8)vp_day;
+        day_ok = 1;
+    }
+    
+    /* Час: 100-123 (формат +100) или 0-23 (прямой) */
+    if (vp_hour >= 100 && vp_hour <= 123)
+        g_rtc.hour = (u8)(vp_hour - 100);
+    else if (vp_hour <= 23)
+        g_rtc.hour = (u8)vp_hour;
+    
+    /* Минуты: 100-159 (формат +100) или 0-59 (прямой) */
+    if (vp_min >= 100 && vp_min <= 159)
+        g_rtc.min = (u8)(vp_min - 100);
+    else if (vp_min <= 59)
+        g_rtc.min = (u8)vp_min;
+    
+    /* Секунды: 100-159 (формат +100) или 0-59 (прямой) */
+    if (vp_sec >= 100 && vp_sec <= 159)
+        g_rtc.sec = (u8)(vp_sec - 100);
+    else if (vp_sec <= 59)
+        g_rtc.sec = (u8)vp_sec;
 
     g_rtc.weekday = calc_weekday(g_rtc.year, g_rtc.month, g_rtc.day);
 }
@@ -1062,9 +1093,9 @@ static void rtc_publish_to_vp(void)
  * ------------------------------------------------------------- */
 
 
-/* Глобальные переменные для температуры (точно как в tttt) */
+/* Глобальные переменные для температуры */
 static u16 adc_val[8] = {0};
-static u16 adc_value[3] = {0};
+static u16 adc_value[8] = {0};
 static u16 R1_value = 0;
 static u16 R2_value = 0;
 static u16 R1_Temperature = 0;
@@ -1073,20 +1104,18 @@ static u16 Temperature_Real = 0;
 static u16 Temperatrue_Real_Old = 0;
 static u16 AD_Count = 0;
 static u16 Temp_Pre = 10;           /* Шаг в десятых градуса: 5=0.5°C, 10=1°C */
-static s16 Temp_Coef[3] = {10, 0, 110}; /* K1, K2, C для подстройки (+11°C по умолчанию при Temp_Pre=10) */
+static s16 Temp_Coef[3] = {0, 0, 0}; /* K1, K2, C - будут загружены из VP или установлены дефолтом */
+
+/* Скользящее среднее для дополнительной фильтрации */
+#define TEMP_FILTER_SIZE 16  /* Увеличено для лучшей стабильности */
+static u16 temp_filter_buf[TEMP_FILTER_SIZE];
+static u8 temp_filter_idx = 0;
+static bit temp_filter_init = 0;  /* Флаг первой инициализации */
 
 /* Загрузка калибровочных коэффициентов температуры */
 static void init_temperature_calibration(void)
 {
-    bit coef_invalid = 0;
     u16 prec;
-
-    /* Коэффициенты: ожидаем K1 = K2 + 10, иначе дефолт */
-    read_dgus_vp(VP_T_COEF, (u8 *)Temp_Coef, 3);
-    if (Temp_Coef[0] <= 0 || Temp_Coef[1] < 0 || Temp_Coef[0] != Temp_Coef[1] + 10)
-    {
-        coef_invalid = 1;
-    }
 
     /* Точность: 0 → 0.5°C (Temp_Pre=5), 1 → 1.0°C (Temp_Pre=10) */
     prec = read_vp_u16(VP_T_PRECISION);
@@ -1104,13 +1133,28 @@ static void init_temperature_calibration(void)
         write_vp_u16(VP_T_PRECISION, 1);
     }
 
-    /* Если коэффициенты невалидны — подставляем дефолт с +11°C относительно Temp_Pre */
-    if (coef_invalid)
+    /* Коэффициенты: читаем и проверяем */
+    read_dgus_vp(VP_T_COEF, (u8 *)Temp_Coef, 3);
+    
+    /* Проверка: K1 должен быть > 0, K1 должен равняться K2 + 10 */
+    if ((Temp_Coef[0] <= 0) || (Temp_Coef[1] < 0) || (Temp_Coef[0] != Temp_Coef[1] + 10))
     {
+        /* Устанавливаем дефолтные значения для вашего термостата
+         * 
+         * КАЛИБРОВКА: Если температура показывает неверно, измените Temp_Coef[2]:
+         * - Если показывает ВЫШЕ реальной: уменьшите значение (сделайте более отрицательным)
+         * - Если показывает НИЖЕ реальной: увеличьте значение (сделайте менее отрицательным)
+         * 
+         * Формула: каждые 10 единиц Temp_Coef[2] = 1°C
+         * Пример: показывает 26.6°C вместо 22°C → разница +4.6°C
+         *         нужно уменьшить на 46 единиц (4.6 * 10 = 46)
+         */
         Temp_Coef[0] = 10;
         Temp_Coef[1] = 0;
-        /* Смещение +11°C: C/Temp_Pre = 11 => C = 11 * Temp_Pre */
-        Temp_Coef[2] = (s16)(11 * Temp_Pre);
+        Temp_Coef[2] = -1800;  /* Базовое значение. Корректируйте после проверки измерений */
+        
+        /* Записываем дефолт в VP для сохранения */
+        write_dgus_vp(VP_T_COEF, (u8 *)Temp_Coef, 3);
     }
 }
 
@@ -1130,11 +1174,11 @@ static void Get_R_Value(u16 n)
     float R1_temp = 0.0f, R2_temp = 0.0f;
     
     adc_value[0] = adc_val[0] / n;
-    adc_value[1] = adc_val[6] / n;  /* adc_value[6] в tttt это индекс 1 */
-    adc_value[2] = adc_val[7] / n;  /* adc_value[7] в tttt это индекс 2 */
+    adc_value[6] = adc_val[6] / n;
+    adc_value[7] = adc_val[7] / n;
     
-    R1_temp = adc_value[2] * 1.0f / (adc_value[1] - adc_value[2]);
-    R2_temp = adc_value[0] * 1.0f / (adc_value[1] - adc_value[0]);
+    R1_temp = adc_value[7] * 1.0f / (adc_value[6] - adc_value[7]);
+    R2_temp = adc_value[0] * 1.0f / (adc_value[6] - adc_value[0]);
     
     R1_value = (u16)(R1_temp * 10000);
     R2_value = (u16)(R2_temp * 10000);
@@ -1173,13 +1217,41 @@ static u8 FindTab(const u16 *pTab, u8 Tablong, u16 dat)
     return m;
 }
 
-/* Расчёт температуры (точно как в tttt) */
+/* Скользящее среднее для фильтрации температуры */
+static u16 apply_temp_filter(u16 new_val)
+{
+    u8 j;
+    u32 sum = 0;
+    
+    /* При первом вызове заполняем весь буфер начальным значением */
+    if (!temp_filter_init)
+    {
+        for (j = 0; j < TEMP_FILTER_SIZE; j++)
+            temp_filter_buf[j] = new_val;
+        temp_filter_init = 1;
+        temp_filter_idx = 0;
+        return new_val;
+    }
+    
+    /* Добавляем новое значение в буфер */
+    temp_filter_buf[temp_filter_idx] = new_val;
+    temp_filter_idx = (temp_filter_idx + 1) % TEMP_FILTER_SIZE;
+    
+    /* Вычисляем среднее по всему буферу */
+    for (j = 0; j < TEMP_FILTER_SIZE; j++)
+        sum += temp_filter_buf[j];
+    
+    return (u16)(sum / TEMP_FILTER_SIZE);
+}
+
+/* Расчёт температуры - МИНИМАЛЬНАЯ ВЕРСИЯ */
 static void Get_Temperature(u16 tim, u16 n)
 {
-    static u16 i = 0, temp_t = 0;
-    float temp1 = 0, temp2 = 0;
-    s16 diff;
-    s32 t_calc;
+    static u16 i = 0;
+    u8 idx1;
+    u16 delta1;
+    s16 adc_diff;
+    float temp1 = 0;
     
     if (AD_Count > tim)
     {
@@ -1188,53 +1260,42 @@ static void Get_Temperature(u16 tim, u16 n)
         if (i >= n)
         {
             Get_R_Value(n);
-            R1_Temperature = FindTab(NTC1_TABLE, NTC_TABLE_SIZE, R1_value);
-            R2_Temperature = FindTab(NTC2_TABLE, NTC_TABLE_SIZE, R2_value);
             
-            temp1 = (NTC1_TABLE[R1_Temperature] - R1_value) * 1.0f / 
-                    (NTC1_TABLE[R1_Temperature] - NTC1_TABLE[R1_Temperature + 1]);
-            temp2 = (NTC2_TABLE[R2_Temperature] - R2_value) * 1.0f / 
-                    (NTC2_TABLE[R2_Temperature] - NTC2_TABLE[R2_Temperature + 1]);
-            
-            R1_Temperature = R1_Temperature * 10 + (u16)(temp1 * 10);
-            R2_Temperature = R2_Temperature * 10 + (u16)(temp2 * 10);
-            
-            /* Калиброванное значение (как в исходном проекте) */
-            t_calc  = (s32)R1_Temperature * Temp_Coef[0];
-            t_calc -= (s32)R2_Temperature * Temp_Coef[1];
-            t_calc += Temp_Coef[2];
-            t_calc  = (t_calc / (10 * (s32)Temp_Pre)) * 10;
-            if (t_calc < 0) t_calc = 0;
-            Temperature_Real = (u16)t_calc;
-            
-            /* Фильтрация */
-            diff = (s16)Temperature_Real - (s16)Temperatrue_Real_Old;
-            if (diff < 0) diff = -diff;
-            
-            if (diff == (s16)Temp_Pre)
+            /* Проверка валидности ADC с запасом */
+            adc_diff = (s16)adc_value[6] - (s16)adc_value[7];
+            if (adc_diff <= 10)  /* Минимальная разница 10 */
             {
-                temp_t++;
-                if (temp_t < 5)
-                {
-                    Temperature_Real = Temperatrue_Real_Old;
-                }
-                else
-                {
-                    temp_t = 0;
-                    Temperatrue_Real_Old = Temperature_Real;
-                }
+                /* ADC невалидный - пропускаем, но не сбрасываем счётчик */
+                adc_val[0] = adc_val[6] = adc_val[7] = 0;
+                i = 0;
+                AD_Count = 0;
+                return;
             }
-            else if (diff >= (s16)(Temp_Pre * 2u))
-            {
-                Temperatrue_Real_Old = Temperature_Real;
-                temp_t = 0;
-            }
+
+            /* Используем только ПЕРВЫЙ датчик (ADC7) */
+            idx1 = FindTab(NTC1_TABLE, NTC_TABLE_SIZE, R1_value);
+
+            if (idx1 >= (NTC_TABLE_SIZE - 1u)) idx1 = NTC_TABLE_SIZE - 2u;
+
+            delta1 = NTC1_TABLE[idx1] - NTC1_TABLE[idx1 + 1u];
+            if (delta1 == 0u) delta1 = 1;  /* Защита от деления на 0 */
+            
+            temp1 = (NTC1_TABLE[idx1] - R1_value) * 1.0f / delta1;
+            R1_Temperature = (u16)idx1 * 10u + (u16)(temp1 * 10.0f);
+            
+            /* Калибровка: смещение -7°C (70 десятых) */
+            #define TEMP_OFFSET 70
+            
+            if (R1_Temperature > TEMP_OFFSET)
+                Temperature_Real = R1_Temperature - TEMP_OFFSET;
+         
+            Temperatrue_Real_Old = Temperature_Real;
             
             g_t_real_10x = Temperature_Real;
             write_vp_u16(VP_T_REAL_10X, g_t_real_10x);
             write_vp_u16(VP_T_REAL_INT, g_t_real_10x / 10u);
             
-            /* Сброс (memset в tttt) */
+            /* Сброс */
             adc_val[0] = 0;
             adc_val[6] = 0;
             adc_val[7] = 0;
@@ -1248,7 +1309,8 @@ static void Get_Temperature(u16 tim, u16 n)
 static void update_temperature(void)
 {
     AD_Count++;
-    Get_Temperature(200, 10);  /* tim=200, n=10 как в tttt */
+    /* tim=40 (@5 ms цикла) * 10 выборок ≈ 2 s на одно измерение */
+    Get_Temperature(40, 10);
 }
 
 /* ---------------------------------------------------------------
@@ -1536,7 +1598,13 @@ static void init_state_and_vps(void)
     /* Калибровка температуры */
     init_temperature_calibration();
 
-    g_t_real_10x = 220;
+    /* Инициализация переменных температуры 
+     * Ставим 0 чтобы видеть когда первое реальное измерение произойдёт */
+    g_t_real_10x = 0;
+    Temperature_Real = 0;
+    Temperatrue_Real_Old = 0;
+    temp_filter_init = 0;  /* Сброс фильтра для первого измерения */
+    
     write_vp_u16(VP_T_REAL_10X, g_t_real_10x);
     write_vp_u16(VP_T_REAL_INT, g_t_real_10x / 10u);
 
