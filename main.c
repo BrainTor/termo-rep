@@ -96,7 +96,9 @@ sbit RELAY_VALVE = P1^3;
 sbit RELAY_LOW   = P1^1;
 sbit RELAY_HIGH  = P1^2;
 sbit RELAY_MID   = P1^4;
-sbit RS485_TX_EN = P0^1;   /* Управление направлением RS485 */
+sbit RS485_DE = P0^1;   /* Управление направлением RS485 (P0.1 = TR5) */
+sbit TX2_SEL  = P0^4;   /* Переключатель TX на плате */
+sbit TR4_PIN  = P0^0;   /* Дополнительный пин управления */
 
 #define RELAY_VALVE_BIT  (1u << 3)
 #define RELAY_LOW_BIT    (1u << 1)
@@ -115,7 +117,13 @@ sbit RS485_TX_EN = P0^1;   /* Управление направлением RS48
 /* Modbus */
 #define MODBUS_RX_BUF_SIZE 64
 #define MODBUS_TX_BUF_SIZE 64
-#define MODBUS_TIMEOUT_MS  10   /* таймаут между байтами (3.5 символа при 115200) */
+#define MODBUS_TIMEOUT_MS  25   /* таймаут между байтами (как в рабочем коде) */
+
+/* Диагностические VP адреса */
+#define VP_DIAG_RX_CNT    0x2080   /* Счётчик принятых байт */
+#define VP_DIAG_FRAME_OK  0x2081   /* Успешно обработанных кадров */
+#define VP_DIAG_CRC_ERR   0x2082   /* Ошибок CRC */
+#define VP_DIAG_ADDR_ERR  0x2083   /* Ошибок адреса */
 
 /* Modbus функции */
 #define MB_FUNC_READ_REGS      0x03
@@ -268,6 +276,12 @@ static u8  xdata    g_mb_tx_buf[MODBUS_TX_BUF_SIZE];
 static u8           g_mb_rx_timeout = 0;
 static bit          g_mb_frame_ready = 0;
 
+/* Диагностические счётчики */
+static u16          g_diag_rx_total = 0;    /* Всего принято байт */
+static u16          g_diag_frame_ok = 0;    /* Успешных кадров */
+static u16          g_diag_crc_err = 0;     /* Ошибок CRC */
+static u16          g_diag_addr_err = 0;    /* Ошибок адреса */
+
 /* ---------------------------------------------------------------
  * Инициализация системы
  * ------------------------------------------------------------- */
@@ -305,39 +319,67 @@ static void init_system(void)
     EA = 1;
 }
 
-/* Настройка UART5 для Modbus RTU */
+/* Флаг занятости передатчика UART5 */
+static bit g_uart5_busy = 0;
+
+/* Настройка UART5 для Modbus RTU (RS485 на плате DWIN TC040C11) */
 static void uart5_init(u8 speed_idx, u8 proto)
 {
-    u16 div_val;
-
     (void)proto;  /* В T5L аппаратно только 8N1 */
 
-    /* Скорости: 1=2400, 2=4800, 3=9600, 4=19200, 5=38400, 6=57600, 7=115200 */
-    switch (speed_idx)
-    {
-        case 1: div_val = (u16)(FOSC / 8UL / 2400UL);   break;
-        case 2: div_val = (u16)(FOSC / 8UL / 4800UL);   break;
-        case 3: div_val = (u16)(FOSC / 8UL / 9600UL);   break;
-        case 4: div_val = (u16)(FOSC / 8UL / 19200UL);  break;
-        case 5: div_val = (u16)(FOSC / 8UL / 38400UL);  break;
-        case 6: div_val = (u16)(FOSC / 8UL / 57600UL);  break;
-        case 7: div_val = (u16)(FOSC / 8UL / 115200UL); break;
-        default: div_val = (u16)(FOSC / 8UL / 115200UL); break; /* 115200 по умолчанию */
-    }
+    /* P0.0, P0.1, P0.4 в push-pull */
+    P0MDOUT |= 0x13;  /* 0x01 | 0x02 | 0x10 = P0.0, P0.1, P0.4 */
+
+    /* Переключатель TX на плате - должен быть = 1 */
+    TX2_SEL = 1;
+    
+    /* Дополнительные пины управления */
+    TR4_PIN = 0;
+    
+    /* RS-485: по умолчанию режим приёма */
+    RS485_DE = 0;
 
     SCON3T = 0x80;      /* TX enable, 8 bit */
     SCON3R = 0x80;      /* RX enable, 8 bit */
 
-    BODE3_DIV_H = (u8)(div_val >> 8);
-    BODE3_DIV_L = (u8)(div_val & 0xFF);
+    /* Baud rate из рабочего кода: 
+       9600:   BODE3_DIV_H=0x0A, BODE3_DIV_L=0x80
+       115200: BODE3_DIV_H=0x00, BODE3_DIV_L=0xE0 */
+    switch (speed_idx)
+    {
+        case 1:  /* 2400 - примерный расчёт */
+            BODE3_DIV_H = 0x2A;
+            BODE3_DIV_L = 0x00;
+            break;
+        case 2:  /* 4800 */
+            BODE3_DIV_H = 0x15;
+            BODE3_DIV_L = 0x00;
+            break;
+        case 3:  /* 9600 - из рабочего кода */
+            BODE3_DIV_H = 0x0A;
+            BODE3_DIV_L = 0x80;
+            break;
+        case 4:  /* 19200 */
+            BODE3_DIV_H = 0x05;
+            BODE3_DIV_L = 0x40;
+            break;
+        case 5:  /* 38400 */
+            BODE3_DIV_H = 0x02;
+            BODE3_DIV_L = 0xA0;
+            break;
+        case 6:  /* 57600 */
+            BODE3_DIV_H = 0x01;
+            BODE3_DIV_L = 0xC0;
+            break;
+        case 7:  /* 115200 - из рабочего кода */
+        default:
+            BODE3_DIV_H = 0x00;
+            BODE3_DIV_L = 0xE0;
+            break;
+    }
 
-    /* TX-вывод UART5 (P0.1) в push-pull */
-    P0MDOUT |= 0x02;
-
-    /* RS-485: по умолчанию режим приёма */
-    RS485_TX_EN = 0;
-
-    /* Включаем прерывание приёма UART5: ES3R в IEN1 бит 5 */
+    /* Включаем прерывания UART5: TX и RX */
+    ES3T = 1;
     ES3R = 1;
 
     EA = 1;
@@ -408,9 +450,19 @@ void UART5_RX_ISR(void) interrupt 13
         }
         g_mb_rx_timeout = MODBUS_TIMEOUT_MS;
         g_mb_frame_ready = 0;
+        
+        /* Диагностика: считаем принятые байты */
+        g_diag_rx_total++;
     }
 
     EA = 1;
+}
+
+/* Прерывание передачи UART5 */
+void UART5_TX_ISR(void) interrupt 12
+{
+    SCON3T &= 0xFE;  /* Сбрасываем флаг */
+    g_uart5_busy = 0;
 }
 
 static void delay_ms(u16 n)
@@ -420,24 +472,27 @@ static void delay_ms(u16 n)
 }
 
 /* ---------------------------------------------------------------
- * UART5 отправка
+ * UART5 отправка (RS485 с управлением направлением на P0.1)
  * ------------------------------------------------------------- */
 
 static void uart5_send_byte(u8 dat)
 {
+    while (g_uart5_busy) ;  /* Ждём пока предыдущий байт отправится */
+    g_uart5_busy = 1;
     SBUF3_TX = dat;
-    while ((SCON3T & 0x01) == 0) ;
-    SCON3T &= 0xFE;
 }
 
 static void uart5_send_buf(u8 *buf, u8 len)
 {
-    RS485_TX_EN = 1;
+    RS485_DE = 1;  /* Включаем передатчик RS485 */
+
     while (len--)
     {
         uart5_send_byte(*buf++);
     }
-    RS485_TX_EN = 0;
+
+    while (g_uart5_busy) ;  /* Ждём завершения последнего байта */
+    RS485_DE = 0;  /* Выключаем передатчик RS485 */
 }
 
 /* ---------------------------------------------------------------
@@ -760,19 +815,36 @@ static void modbus_process_frame(void)
     u16 crc_recv, crc_calc;
     u8 i, tx_len;
 
+    /* Диагностика: записываем количество принятых байт */
+    write_vp_u16(VP_DIAG_RX_CNT, g_diag_rx_total);
+
     if (g_mb_rx_cnt < 4) goto cleanup;
 
-    /* Проверка CRC */
+    /* Проверка CRC (порядок: buf[len-2]=CRC_HI, buf[len-1]=CRC_LO) */
     crc_calc = modbus_crc16(g_mb_rx_buf, g_mb_rx_cnt - 2);
-    crc_recv = ((u16)g_mb_rx_buf[g_mb_rx_cnt - 1] << 8) | g_mb_rx_buf[g_mb_rx_cnt - 2];
+    crc_recv = ((u16)g_mb_rx_buf[g_mb_rx_cnt - 2] << 8) | g_mb_rx_buf[g_mb_rx_cnt - 1];
 
-    if (crc_calc != crc_recv) goto cleanup;
+    if (crc_calc != crc_recv)
+    {
+        g_diag_crc_err++;
+        write_vp_u16(VP_DIAG_CRC_ERR, g_diag_crc_err);
+        goto cleanup;
+    }
 
     addr = g_mb_rx_buf[0];
     func = g_mb_rx_buf[1];
 
     /* Проверка адреса */
-    if (addr != g_mb_addr && addr != 0) goto cleanup;
+    if (addr != g_mb_addr && addr != 0)
+    {
+        g_diag_addr_err++;
+        write_vp_u16(VP_DIAG_ADDR_ERR, g_diag_addr_err);
+        goto cleanup;
+    }
+    
+    /* Диагностика: успешный кадр */
+    g_diag_frame_ok++;
+    write_vp_u16(VP_DIAG_FRAME_OK, g_diag_frame_ok);
 
     /* Обработка функций */
     switch (func)
@@ -804,10 +876,10 @@ static void modbus_process_frame(void)
                 g_mb_tx_buf[tx_len++] = (u8)(reg_val & 0xFF);
             }
 
-            /* CRC */
+            /* CRC (порядок: CRC_HI первым, CRC_LO вторым) */
             crc_calc = modbus_crc16(g_mb_tx_buf, tx_len);
-            g_mb_tx_buf[tx_len++] = (u8)(crc_calc & 0xFF);
             g_mb_tx_buf[tx_len++] = (u8)(crc_calc >> 8);
+            g_mb_tx_buf[tx_len++] = (u8)(crc_calc & 0xFF);
 
             if (addr != 0) uart5_send_buf(g_mb_tx_buf, tx_len);
             break;
@@ -859,8 +931,8 @@ static void modbus_process_frame(void)
             g_mb_tx_buf[5] = g_mb_rx_buf[5];
 
             crc_calc = modbus_crc16(g_mb_tx_buf, 6);
-            g_mb_tx_buf[6] = (u8)(crc_calc & 0xFF);
-            g_mb_tx_buf[7] = (u8)(crc_calc >> 8);
+            g_mb_tx_buf[6] = (u8)(crc_calc >> 8);
+            g_mb_tx_buf[7] = (u8)(crc_calc & 0xFF);
 
             if (addr != 0) uart5_send_buf(g_mb_tx_buf, 8);
             break;
@@ -876,8 +948,8 @@ send_error_func:
     g_mb_tx_buf[1] = func | 0x80;
     g_mb_tx_buf[2] = MB_ERR_ILLEGAL_FUNC;
     crc_calc = modbus_crc16(g_mb_tx_buf, 3);
-    g_mb_tx_buf[3] = (u8)(crc_calc & 0xFF);
-    g_mb_tx_buf[4] = (u8)(crc_calc >> 8);
+    g_mb_tx_buf[3] = (u8)(crc_calc >> 8);
+    g_mb_tx_buf[4] = (u8)(crc_calc & 0xFF);
     if (addr != 0) uart5_send_buf(g_mb_tx_buf, 5);
     goto cleanup;
 
@@ -886,8 +958,8 @@ send_error_addr:
     g_mb_tx_buf[1] = func | 0x80;
     g_mb_tx_buf[2] = MB_ERR_ILLEGAL_ADDR;
     crc_calc = modbus_crc16(g_mb_tx_buf, 3);
-    g_mb_tx_buf[3] = (u8)(crc_calc & 0xFF);
-    g_mb_tx_buf[4] = (u8)(crc_calc >> 8);
+    g_mb_tx_buf[3] = (u8)(crc_calc >> 8);
+    g_mb_tx_buf[4] = (u8)(crc_calc & 0xFF);
     if (addr != 0) uart5_send_buf(g_mb_tx_buf, 5);
     goto cleanup;
 
@@ -896,8 +968,8 @@ send_error_value:
     g_mb_tx_buf[1] = func | 0x80;
     g_mb_tx_buf[2] = MB_ERR_ILLEGAL_VALUE;
     crc_calc = modbus_crc16(g_mb_tx_buf, 3);
-    g_mb_tx_buf[3] = (u8)(crc_calc & 0xFF);
-    g_mb_tx_buf[4] = (u8)(crc_calc >> 8);
+    g_mb_tx_buf[3] = (u8)(crc_calc >> 8);
+    g_mb_tx_buf[4] = (u8)(crc_calc & 0xFF);
     if (addr != 0) uart5_send_buf(g_mb_tx_buf, 5);
 
 cleanup:
